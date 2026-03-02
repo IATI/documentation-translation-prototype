@@ -1,0 +1,61 @@
+term,pos,Agreed,definition,source,comments,ES,FR
+activity,Noun,,A piece of development or humanitarian work done by a reporting organisation,https://iatistandard.org/en/guidance/standard-overview/preparing-your-data/activity-information/activity-defined/,,actividad,activité
+activity identifier,Noun,,A globally unique identifier for the activity,https://iatistandard.org/en/iati-standard/203/activity-standard/iati-activities/iati-activity/iati-identifier/,"Use of ""activity reference"" seems incorrect, going by the Standard",identificador de actividad,identifiant d'activité
+address,Noun,,"The details or particulars of the place where someone lives, an organisation is situated or a webpage is located",Taken from BODS Glossary,,dirección,adresse
+Application Programming Interface (API),Noun,,"A package of information - including coding language, functions, code snippets and tools - to allow third-party applications to connect with a software or data platform.",Taken from BODS Glossary,,Interfaz de programación de aplicaciones (API),Interface de programmation d'applications (API)
+CC BY 4.0,Noun,,A Creative Commons license,,,CC BY 4.0,CC BY 4.0
+character,Noun,,"Any letter, number, space, punctuation mark, or symbol typed or entered on a computer",https://techterms.com/definition/character,,carácter,caractère
+classification,Noun,No,one of the groups or classes into which things may be or have been classified,https://www.dictionary.com/browse/classification,,clasificación,classification
+condition,Noun,,A circumstance indispensable to some result; prerequisite; that on which something else is contingent,https://www.dictionary.com/browse/condition,,condición,condition
+data,Noun,,"Information in digital format, as encoded text, numbers, multimedia images, audio, or video",https://www.dictionary.com/browse/data,,datos,données
+data validation,Noun,,"Checking that data conforms to a system's or standard's requirements. For example, a data export is made on 11th Feb 2018 and a data standard requires the export date in YYYY-MM-DD format. The export date is recorded as '2018-02-11' which is valid and true. (Note: data can be valid without being true. In the previous example, if the export date had been recorded as '2018-11-02', the data is valid but incorrect.)",Taken from BODS Glossary,,validación de datos,validation des données
+data verification,Noun,,"Checking that the data is actually true. For example, if a company claims that a person is its beneficial owner, is this backed up by other documentation?",Taken from BODS Glossary,,verificación de datos,vérification des données
+downstream partner,Noun,,An organisation that receives money from another organisation to perform international development or humanitarian work. They can form part of a complex delivery chain and are typically at least one level removed in the delivery chain from the original donor organisation. ,,"Organisations that are directly funded by a donor can be called ""suppliers"", ""first-tier partners"" or simply ""partners""",asociado en la ejecución,partenaire en aval
+donor,Noun,,"An organisation that makes a gift, grant, or contribution to another organisation, a fund or cause. Donor organisations can synonymously be called ""funders""",,Used interchangeably as funder,donante,donateur
+download,Verb,,"To transfer (software, data, character sets, etc.) from a distant to a nearby computer",https://www.dictionary.com/browse/download,,descargar,télécharger
+download,Noun,,"Software, data, etc., that has been downloaded:",https://www.dictionary.com/browse/download,,descargar,téléchargement
+file,Noun,,A collection of related data or program records stored on some input/output or auxiliary storage medium:,https://www.dictionary.com/browse/file,,archivo,fichier
+field,Noun,,An element of a structured dataset or data model that can contain an item of data.,Taken from BODS Glossary,,campo,champ
+format,Noun,,"A file format refers to the way data is saved within a file. For example, some files are saved in a plain text format, while others are saved as binary files.",https://techterms.com/definition/format,,formato,format
+function,Noun,,"A group of instructions, also known as a named procedure, used by programming languages to return a single result or a set of results",https://www.computerhope.com/jargon/f/function.htm,,función,fonction
+funder,Noun,,See 'donor',,,financiador,bailleur de fonds
+GitHub,Noun,,A platform for hosting software code,,,GitHub,GitHub
+grantee,Noun,,the receiver of a grant,https://www.dictionary.com/browse/grantee,,receptor de una subvención,bénéficiaire
+humanitarian,Noun,,pertaining to the saving of human lives or to the alleviation of suffering,https://www.dictionary.com/browse/humanitarian,,humanitario,humanitaire
+IATI,Noun,,The International Aid Transparency Initiative,,,IATI,IITA
+IATI Account,Noun,,IATI's account management portal (https://account.iatistandard.org/),,,Cuenta IATI,Compte IITA
+IATI Connect,Noun,,IATI's community platform (https://www.iaticonnect.org/),,,IATI Connect,IATI Connect
+IATI Publisher,Noun,,IATI's data publishing tool (https://publisher.iatistandard.org/),,,IATI Publisher,IATI Publisher
+IATI Standard,Noun,,A set of rules and guidance about what IATI data organisations should publish and what format it should be presented in,https://iatistandard.org/en/about/iati-standard/,,Norma IATI,Norme de l'IITA
+IATI Validator,Noun,,IATI's data validation tool (https://validator.iatistandard.org/),,,Validador de la IATI,IATI Validator
+identifier,Noun,,"Text for uniquely and persistently describing a real-world entity or activity, for example a combination of a company register and a company number.",Taken from BODS Glossary (edited by SW),,identificador,identifiant
+indicator,Noun,,A quantifiable measure associated with monitoring a result. There can be multiple indicators for each result.,https://iatistandard.org/en/iati-standard/203/activity-standard/iati-activities/iati-activity/result/indicator/,,indicador,indicateur
+initiative,Noun,,"A new attempt to achieve a goal or solve a problem, or a new method for doing this:",https://dictionary.cambridge.org/dictionary/english/initiative,,iniciativa,initiative
+international aid,Noun,,A voluntary transfer of development or humanitarian resources from one country to another.,https://en.wikipedia.org/wiki/Aid,,ayuda internacional,aide internationale
+international development,Noun,,The promotion of the economic development and welfare of developing countries,https://en.wikipedia.org/wiki/Official_development_assistance,,desarrollo internacional,développement international
+mandatory,Adjective,,Authoritatively ordered; obligatory; compulsory:,https://www.dictionary.com/browse/mandatory,,obligatorio,obligatoire
+open data,Noun,,"Data that anyone can access, use or share.",Taken from BODS Glossary,,datos abiertos,données ouvertes
+organisation,Noun,,"an organised group of people with a particular purpose, such as a business or government department.",Taken from BODS Glossary,,organización,organisation
+organisation identifier,Noun,,See organisation reference,,,identificador de la organización,identifiant de l'organisation
+organisation reference,Noun,,"A reference to identify an organisation across open datasets; it is made up of two parts based on an agency the organisation is registered with and their registration number. The terms ""organisation identifier"" and ""org id"" are often used as synonyms.",,"To replace use of the terms ""organisation identifier"" and ""org id""",referencia de la organización,référence de l'organisation
+participating organisation,Noun,,"An organisation involved with the activity. May be a donor, fund, agency, etc.",https://iatistandard.org/en/iati-standard/203/activity-standard/iati-activities/iati-activity/participating-org/,,organización participante,organisation participante
+publisher,Noun,,The organisation releasing the data,Taken from BODS Glossary,"In most context, ""reporting org"" or ""reporting organisation"" is a more appropraite term to use ",entidad que publica datos,organisme de publication
+publishing,verb,,The occupation or activity of preparing and making data available to the general public,Taken from BODS Glossary,,publicación,publication
+quantitative,Adjective,,Of or relating to the describing or measuring of quantity,https://www.dictionary.com/browse/quantitative,,cuantitativo,quantitatif/quantitative
+reporting organisation,Noun,,"The organisation issuing the report. May be a primary source (reporting on its own activity as donor, implementing agency, etc) or a secondary source (reporting on the activities of another organisation).",https://iatistandard.org/en/iati-standard/203/activity-standard/iati-activities/iati-activity/reporting-org/,"Should be consistent across tools - in the standard organisations are not publishers, reporting organisations publish data. ",organización que presenta el informe,organisation déclarante
+resource,Noun,,"A source of supply, support, or aid, especially one that can be readily drawn upon when needed",https://www.dictionary.com/browse/resource,,recurso,ressource
+result,Noun,,Something that happens as a consequence; outcome.,https://www.dictionary.com/browse/result,,resultado,résultat
+result,Verb,,"To terminate or end in a specified manner or thing.
+",https://www.dictionary.com/browse/result,,resultar,résulter
+ruleset,Noun,,A table of instructions used by a controlled interface to determine what data is allowable and how the data is handled between interconnected systems,https://csrc.nist.gov/glossary/term/ruleset,,conjunto de reglas,ensemble de règles
+schema,Noun,,"A list of field definitions, usually representing a community specification for presenting machine-readable data","https://dkan.readthedocs.io/en/7.x-1.x/components/open-data-schema.html#:~:text=A%20schema%20is%20a%20list,a%20standard%20Drupal%20.",,esquema,schéma
+sector code,Noun,,"A recognised code, from a recognised vocabulary, classifying the purpose of the activity.",https://iatistandard.org/en/iati-standard/203/activity-standard/iati-activities/iati-activity/sector/,,código de sector,code secteur
+Sphinx,Noun,,Documentation software used for IATI's docs sites,,,Sphinx,Sphinx
+transparency,Noun,,The quality of being done in an open way without secrets,https://dictionary.cambridge.org/dictionary/english/transparency,,transparencia,transparence
+user,Noun,,Individual or group that interacts with a system or benefits from a system during its utilization.,https://csrc.nist.gov/glossary/term/user,,usuario,utilisateur
+validation,Noun,,See data validation,,,validación,validation
+verification,Noun,,See data verification,,,verificación,vérification
+Extensible Markup Language (XML),Noun,,A flexible text format designed to describe data for electronic publishing,https://csrc.nist.gov/glossary/term/xml,,Lenguaje de Marcado Extensible (XML),langage de balisage extensible (XML)
+workspace,Noun,,A personal area on the IATI Validator that stores a history of files validated by a user,Simon made this up,,espacio de trabajo,espace de travail
+Young Innovations,Noun,,A software development company in Nepal who produce IATI Publisher and AidStream,,,Young Innovations,Young Innovations
+In IATI,,,Referring to something that happens within or is a property of IATI,Discussion with Strategic Agenda,,En IATI,Dans l'IITA

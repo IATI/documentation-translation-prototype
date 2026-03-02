@@ -1,0 +1,41 @@
+{
+  "few_shot_examples": [
+    {
+      "source": "Click the **Save** button to save your changes.",
+      "target_language": "fr",
+      "translation": "Cliquez sur le bouton **Enregistrer** pour enregistrer vos modifications.",
+      "explanation": "Preserve markdown formatting (**bold**). Use formal 'vous' form."
+    },
+    {
+      "source": "Click the **Save** button to save your changes.",
+      "target_language": "es",
+      "translation": "Haga clic en el botón **Guardar** para guardar los cambios.",
+      "explanation": "Preserve markdown formatting. Use formal 'usted' form."
+    },
+    {
+      "source": "For more information, see `How to publish data <https://iatistandard.org/en/guidance/>`_.",
+      "target_language": "fr",
+      "translation": "Pour plus d'informations, consultez `Comment publier des données <https://iatistandard.org/fr/guidance/>`_.",
+      "explanation": "Preserve reStructuredText link syntax exactly. Translate link text but keep URL unchanged apart from language code."
+    },
+    {
+      "source": "For more information, see `How to publish data <https://iatistandard.org/en/guidance/>`_.",
+      "target_language": "es",
+      "translation": "Para obtener más información, consulte `Cómo publicar datos <https://iatistandard.org/es/guidance/>`_.",
+      "explanation": "Preserve reStructuredText link syntax exactly. Translate link text but keep URL unchanged apart from language code."
+    },
+    {
+      "source": "Navigate to **Settings** > **Publishing Settings**.",
+      "target_language": "fr",
+      "translation": "Accédez à **Paramètres** > **Paramètres de publication**.",
+      "explanation": "Menu paths should be translated. Bold formatting preserved."
+    },
+    {
+      "source": "Navigate to **Settings** > **Publishing Settings**.",
+      "target_language": "es",
+      "translation": "Vaya a **Configuración** > **Configuración de publicación**.",
+      "explanation": "Menu paths should be translated. Bold formatting preserved."
+    }
+  ],
+  "notes": "Translation Guidelines for IATI Publisher Documentation:\n\n1. FORMALITY: Use formal language throughout:\n   - French: Use 'vous' (formal you), never 'tu'\n   - Spanish: Use 'usted' form, never 'tú'\n\n2. FORMATTING: Preserve ALL markup exactly:\n   - reStructuredText links: `text <url>`_ (keep backticks and angle brackets)\n   - Markdown bold: **text** \n   - Markdown italic: *text*\n   - Code/commands in backticks: `command`\n   - URLs must remain unchanged\n\n3. TERMINOLOGY: \n   - Keep 'IATI Publisher' as-is (product name)\n   - French uses 'IITA' for 'IATI' (the initiative)\n   - Spanish keeps 'IATI' \n   - Technical terms should be translated consistently per glossary\n\n4. STYLE:\n   - Match the professional, instructional tone of the original\n   - Keep sentences clear and concise\n   - Use standard technical documentation conventions for each language\n\n5. NUMBERS & DATES:\n   - Keep number formats appropriate for target locale\n   - Date formats may need adjustment for locale conventions"
+}

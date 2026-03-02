@@ -1,0 +1,14 @@
+# Core dependencies for the IATI documentation translation prototype.
+# Compile to requirements.txt with: pip-compile requirements.in
+
+# LLM API client (Mistral AI — translator and reviewer models)
+mistralai>=1.0.0
+
+# PO/POT file reading and writing
+polib>=1.2.0
+
+# Excel glossary loading (config.py reads glossary.xlsx)
+openpyxl>=3.1.0
+
+# Sphinx i18n tooling — syncs .pot -> .po (sphinx pulled in transitively)
+sphinx-intl>=2.0.0
