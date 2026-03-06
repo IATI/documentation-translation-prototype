@@ -34,10 +34,10 @@ from translation_lib import (
     LANGUAGE_NAMES,
     SUPPORTED_LANGUAGES,
     TranslationConfig,
-    call_reviewer_api,
-    call_translator_api,
+    call_llm,
     configure_project,
     get_po_files,
+    is_locked,
     load_po_file,
     parse_json_response,
     scaffold_language,
@@ -61,8 +61,8 @@ MAX_REVIEW_PASSES = 2
 # -----------------------------------------------------------------------------
 
 
-def extract_strings() -> int:
-    """Run sphinx-build to generate .pot files. Returns number of .pot files."""
+def extract_strings() -> bool:
+    """Run sphinx-build to generate .pot files. Returns True on success."""
     print("Extracting strings from documentation...")
     result = subprocess.run(
         ["sphinx-build", "-b", "gettext", ".", "_build/locale"],
@@ -72,12 +72,12 @@ def extract_strings() -> int:
     )
     if result.returncode != 0:
         print(f"  Error running sphinx-build: {result.stderr}")
-        return 0
+        return False
 
     pot_dir = tl_config.DOCS_DIR / "_build" / "locale"
     pot_files = list(pot_dir.glob("*.pot")) if pot_dir.exists() else []
     print(f"  Generated {len(pot_files)} .pot files")
-    return len(pot_files)
+    return True
 
 
 # -----------------------------------------------------------------------------
@@ -136,7 +136,7 @@ def translate_language(
 
     for po_path in get_po_files(language):
         po = load_po_file(po_path)
-        untranslated = [e for e in po.untranslated_entries() if len(e.msgid.strip()) >= 2]
+        untranslated = [e for e in po.untranslated_entries() if len(e.msgid.strip()) >= 2 and not is_locked(e)]
 
         if not untranslated:
             continue
@@ -155,12 +155,12 @@ def translate_language(
             system_msg, user_msg = build_translation_prompt(
                 entry.msgid, language, config
             )
-            raw = call_translator_api(
+            raw = call_llm(
                 client, user_msg, system=system_msg, json_mode=True
             )
 
             try:
-                data = json.loads(raw)
+                data = parse_json_response(raw)
                 translation = data.get("translation", raw)
             except json.JSONDecodeError:
                 translation = raw
@@ -190,6 +190,10 @@ def translate_language(
 
 
 # -----------------------------------------------------------------------------
+# Step 4: Review — see translation_lib/review.py
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
 # Step 5: Handle fuzzy entries
 # -----------------------------------------------------------------------------
 
@@ -211,6 +215,10 @@ def handle_fuzzy_language(
     for po_path in get_po_files(language):
         po = load_po_file(po_path)
         for entry in po.fuzzy_entries():
+            if is_locked(entry):
+                print(f"  WARNING: Locked entry is fuzzy — review manually: "
+                      f"{po_path.name}: \"{truncate(entry.msgid)}\"")
+                continue
             fuzzy_entries.append({
                 "index": global_idx,
                 "file_name": po_path.name,
@@ -234,7 +242,7 @@ def handle_fuzzy_language(
 
     # Send to LLM for validation
     prompt = build_fuzzy_validation_prompt(fuzzy_entries, language, config)
-    result = call_reviewer_api(client, prompt)
+    result = call_llm(client, prompt, json_mode=True)
 
     try:
         parsed = parse_json_response(result)
@@ -278,6 +286,15 @@ def handle_fuzzy_language(
             files_to_save[id(po_file)] = po_file
             print(f"    REVISED  [{idx}] {file_name}: {diff}")
             revised += 1
+        else:
+            continue
+
+        # Quality check the approved/revised translation
+        qr = ensure_entry_quality(client, entry, language, config)
+        for fix in qr.fixes_applied:
+            print(f"      FIX: {fix}")
+        for issue in qr.remaining_issues:
+            print(f"      WARNING: {issue['description']}")
 
     for po_file in files_to_save.values():
         po_file.save()
@@ -363,10 +380,11 @@ Examples:
 
     # Step 1 & 2: Extract and update PO files
     if not args.skip_extract and not args.dry_run:
-        extract_strings()
+        if not extract_strings():
+            return 1
         update_po_files(languages)
 
-    # Steps 3-6: Translate, check, review, handle fuzzy for each language
+    # Steps 3-5: Translate, review, handle fuzzy for each language
     summary: dict[str, dict] = {}
 
     for lang in languages:
@@ -398,11 +416,13 @@ Examples:
         # Coverage stats
         total_translated = 0
         total_entries = 0
+        total_locked = 0
         for po_path in get_po_files(lang):
             po = load_po_file(po_path)
             entries = [e for e in po if e.msgid]
             total_entries += len(entries)
             total_translated += len([e for e in entries if e.msgstr and "fuzzy" not in e.flags])
+            total_locked += sum(1 for e in entries if is_locked(e))
 
         # Final validation: attempt to fix remaining issues
         final_fixes = 0
@@ -413,6 +433,8 @@ Examples:
             for po_path in get_po_files(lang):
                 po = load_po_file(po_path)
                 for entry in po.translated_entries():
+                    if is_locked(entry):
+                        continue
                     issues = run_all_checks(entry, lang, config)
                     if not issues:
                         continue
@@ -436,6 +458,8 @@ Examples:
             for po_path in get_po_files(lang):
                 po = load_po_file(po_path)
                 for entry in po.translated_entries():
+                    if is_locked(entry):
+                        continue
                     issues = run_all_checks(entry, lang, config)
                     for issue in issues:
                         remaining_issue_details.append((
@@ -454,6 +478,7 @@ Examples:
             "remaining_issue_details": remaining_issue_details,
             "translated": total_translated,
             "total": total_entries,
+            "locked": total_locked,
         }
 
     # Print summary
@@ -479,19 +504,27 @@ Examples:
                     f"  {stats['fuzzy_approved']} fuzzy approved, "
                     f"{stats['fuzzy_revised']} fuzzy revised"
                 )
+            if stats.get("locked"):
+                print(f"  {stats['locked']} locked entries skipped")
             if stats["total"] > 0:
                 pct = stats["translated"] / stats["total"] * 100
                 print(f"  Coverage: {stats['translated']}/{stats['total']} ({pct:.0f}%)")
 
             # Show final-pass fixes
-            final_fixes = stats.get("final_fixes", 0)
-            if final_fixes:
-                print(f"  Final pass: {final_fixes} entries auto-fixed")
+            final_fix_details = stats.get("final_fix_details", [])
+            if final_fix_details:
+                print(f"  Final pass: {len(final_fix_details)} pre-existing translations corrected:")
+                for file_name, source, old_trans, new_trans in final_fix_details:
+                    print(f"    {file_name}: \"{truncate(source)}\"")
+                    print(f"      {format_diff(old_trans, new_trans)}")
 
             # Show remaining issues
             remaining = stats.get("remaining_issue_details", [])
             if remaining:
-                print(f"  Remaining: {len(remaining)} issues need manual review")
+                print(f"  Remaining: {len(remaining)} issues need manual review:")
+                for file_name, source, description in remaining:
+                    print(f"    {file_name}: \"{truncate(source)}\"")
+                    print(f"      {description}")
                 any_issues = True
             else:
                 print(f"  Quality: all checks passed")

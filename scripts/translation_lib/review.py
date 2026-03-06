@@ -11,8 +11,8 @@ import polib
 from .checks import fix_url_language_codes, validate_revision
 from .config import LANGUAGE_NAMES, SITE_REVIEW_CHUNK_SIZE, TranslationConfig
 from .formatting import format_diff, location
-from .llm_utils import call_reviewer_api, parse_json_response
-from .po_utils import get_po_files, load_po_file
+from .llm_utils import call_llm, parse_json_response
+from .po_utils import get_po_files, is_locked, load_po_file
 from .prompts import build_review_prompt, build_site_review_prompt
 
 
@@ -42,10 +42,12 @@ def review_po_files(
             print(f"  {po_path.name}: {len(translated)} translations to review")
             continue
 
-        # Build review entries
+        # Build review entries (skip locked)
         review_entries = []
         entry_map: dict[int, polib.POEntry] = {}
         for i, entry in enumerate(translated):
+            if is_locked(entry):
+                continue
             review_entries.append({
                 "index": i,
                 "source": entry.msgid,
@@ -54,12 +56,15 @@ def review_po_files(
             })
             entry_map[i] = entry
 
+        if not review_entries:
+            continue
+
         print(f"  {po_path.name}: {len(translated)} translations checked")
 
         prompt = build_review_prompt(
             review_entries, language, config, po_path.name
         )
-        result = call_reviewer_api(client, prompt)
+        result = call_llm(client, prompt, json_mode=True)
 
         try:
             review_result = parse_json_response(result)
@@ -141,6 +146,8 @@ def review_site_wide(
     for po_path in get_po_files(language):
         po = load_po_file(po_path)
         for entry in po.translated_entries():
+            if is_locked(entry):
+                continue
             all_entries.append({
                 "index": global_idx,
                 "file_name": po_path.name,
@@ -178,7 +185,7 @@ def review_site_wide(
             print(f"  Reviewing chunk {chunk_num}/{len(chunks)} ({len(chunk)} entries)...")
 
         prompt = build_site_review_prompt(chunk, language, config)
-        result = call_reviewer_api(client, prompt)
+        result = call_llm(client, prompt, json_mode=True)
 
         try:
             review_result = parse_json_response(result)

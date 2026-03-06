@@ -8,11 +8,11 @@ import time
 
 from mistralai import Mistral
 
-from .config import REVIEWER_MODEL, TRANSLATOR_MODEL, with_retry
+from .config import LLM_MODEL, with_retry
 
-# Minimum gap between API calls (seconds). Mistral's rate limit is
-# 1 req/s, so we pace ourselves just under that to avoid 429s.
-_MIN_CALL_GAP = 1.1
+# Minimum gap between API calls (seconds). Our Mistral rate limit is
+# 6 req/s; we use half that to leave headroom.
+_MIN_CALL_GAP = 1.0 / 3
 _last_call_time = 0.0
 
 
@@ -27,23 +27,14 @@ def _throttle() -> None:
 
 
 @with_retry(max_retries=3)
-def _call_api(
+def call_llm(
     client: Mistral,
     prompt: str,
     *,
-    model: str,
     system: str | None = None,
     json_mode: bool = False,
 ) -> str:
-    """Call a Mistral model.
-
-    Args:
-        client: Mistral client
-        prompt: User message content
-        model: Model identifier
-        system: Optional system message
-        json_mode: If True, request JSON response format
-    """
+    """Call the LLM. Always uses temperature=0 for consistency."""
     _throttle()
 
     messages = []
@@ -51,41 +42,12 @@ def _call_api(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    kwargs = {"model": model, "messages": messages}
+    kwargs = {"model": LLM_MODEL, "messages": messages, "temperature": 0}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
-    # Use temperature=0 for the reviewer to maximise consistency
-    if model == REVIEWER_MODEL:
-        kwargs["temperature"] = 0
 
     response = client.chat.complete(**kwargs)
     return response.choices[0].message.content.strip()
-
-
-def call_reviewer_api(
-    client: Mistral,
-    prompt: str,
-    *,
-    system: str | None = None,
-    json_mode: bool = True,
-) -> str:
-    """Call the reviewer model (Mistral Large)."""
-    return _call_api(
-        client, prompt, model=REVIEWER_MODEL, system=system, json_mode=json_mode
-    )
-
-
-def call_translator_api(
-    client: Mistral,
-    prompt: str,
-    *,
-    system: str | None = None,
-    json_mode: bool = False,
-) -> str:
-    """Call the translator model (Mistral Small)."""
-    return _call_api(
-        client, prompt, model=TRANSLATOR_MODEL, system=system, json_mode=json_mode
-    )
 
 
 def _strip_code_blocks(text: str) -> str:
@@ -164,7 +126,10 @@ def parse_json_response(result: str) -> dict:
         try:
             return json.loads(stripped)
         except json.JSONDecodeError:
-            pass
+            try:
+                return json.loads(_fix_common_json_errors(stripped))
+            except json.JSONDecodeError:
+                pass
 
     # 3. Try extracting outermost JSON object from prose
     extracted = _extract_json_object(result)

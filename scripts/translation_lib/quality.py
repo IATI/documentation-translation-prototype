@@ -12,7 +12,7 @@ import polib
 
 from .checks import auto_fix_entry, run_all_checks, validate_revision
 from .config import TranslationConfig
-from .llm_utils import call_translator_api
+from .llm_utils import call_llm, parse_json_response
 from .prompts import build_correction_prompt
 
 
@@ -61,12 +61,12 @@ def ensure_entry_quality(
         system_msg, user_msg = build_correction_prompt(
             entry.msgid, entry.msgstr, issues, language, config
         )
-        raw = call_translator_api(
+        raw = call_llm(
             client, user_msg, system=system_msg, json_mode=True
         )
 
         try:
-            data = json.loads(raw)
+            data = parse_json_response(raw)
             corrected = data.get("translation", raw)
         except json.JSONDecodeError:
             corrected = raw

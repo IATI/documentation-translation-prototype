@@ -81,11 +81,7 @@ def scaffold_language(language: str) -> None:
 # Model Configuration
 # -----------------------------------------------------------------------------
 
-# Mistral Models
-# - mistral-small-latest: Fast, cost-effective for translation
-# - mistral-large-latest: Most capable, for review/quality assurance
-TRANSLATOR_MODEL = "mistral-large-latest"
-REVIEWER_MODEL = "mistral-large-latest"
+LLM_MODEL = "mistral-large-latest"
 
 # Site-wide review chunking
 SITE_REVIEW_CHUNK_SIZE = 50  # Max translations per LLM call
@@ -197,8 +193,9 @@ def load_ui_terms_from_xlsx(path: Path) -> dict[str, dict[str, str]]:
     try:
         from openpyxl import load_workbook
     except ImportError:
-        print("Warning: openpyxl not installed. Run: pip install openpyxl")
-        return {}
+        raise ImportError(
+            "openpyxl is required to load UI terms. Run: pip install openpyxl"
+        )
 
     if not path.exists():
         return {}

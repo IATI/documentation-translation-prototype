@@ -116,6 +116,55 @@ def _build_translation_system(
     return "\n".join(system_parts)
 
 
+def _parse_glossary_key(key: str) -> tuple[str, str]:
+    """Parse a glossary key like 'download (verb)' into ('download', 'verb').
+
+    Returns (term, pos) where pos is empty string if not present.
+    """
+    if key.endswith(")") and " (" in key:
+        term, pos = key.rsplit(" (", 1)
+        return term, pos[:-1]
+    return key, ""
+
+
+def _find_glossary_terms(
+    source_text: str,
+    target_language: str,
+    config: TranslationConfig,
+) -> list[tuple[str, str, str]]:
+    """Find glossary terms present in the source text.
+
+    Returns list of (term, pos, translation) tuples.
+    Matches are case-insensitive. Longer terms are preferred over shorter ones
+    to avoid matching substrings (e.g. "activity identifier" over "activity"),
+    unless different parts of speech have different translations.
+    """
+    source_lower = source_text.lower()
+    matches: list[tuple[str, str, str]] = []
+
+    for key, translations in config.glossary.items():
+        translation = translations.get(target_language, "")
+        if not translation:
+            continue
+        term, pos = _parse_glossary_key(key)
+        if term.lower() in source_lower:
+            matches.append((term, pos, translation))
+
+    # Remove terms that are substrings of longer matched terms,
+    # but only if they have the same translation (keep both noun/verb forms)
+    to_remove = []
+    for i, (short_term, _, short_trans) in enumerate(matches):
+        for long_term, _, long_trans in matches:
+            if (
+                short_term != long_term
+                and short_term.lower() in long_term.lower()
+                and short_trans == long_trans
+            ):
+                to_remove.append(i)
+                break
+    return [m for i, m in enumerate(matches) if i not in to_remove]
+
+
 def build_translation_prompt(
     source_text: str,
     target_language: str,
@@ -130,7 +179,25 @@ def build_translation_prompt(
     system = _build_translation_system(target_language, config)
     system += '\n\nYou MUST respond with JSON: {"translation": "your translation here"}'
 
-    return system, source_text
+    # Highlight glossary terms found in this specific source text
+    matched_terms = _find_glossary_terms(source_text, target_language, config)
+    if matched_terms:
+        term_lines = []
+        for term, pos, translation in matched_terms:
+            if pos:
+                term_lines.append(f'  "{term}" ({pos}) → "{translation}"')
+            else:
+                term_lines.append(f'  "{term}" → "{translation}"')
+        user_msg = (
+            "This text contains the following glossary terms — "
+            "you MUST use these exact translations:\n"
+            + "\n".join(term_lines)
+            + f"\n\n{source_text}"
+        )
+    else:
+        user_msg = source_text
+
+    return system, user_msg
 
 
 # -----------------------------------------------------------------------------
@@ -180,6 +247,13 @@ def build_review_prompt(
         "- Stylistic preferences (both phrasings are correct)",
         "- Punctuation style (em-dash vs hyphen, etc.)",
         "- Minor word order differences that don't change meaning",
+        "",
+        "CRITICAL — FORMATTING IN REVISIONS:",
+        "- Your revised text MUST have EXACTLY the same formatting markers as the source.",
+        "- If the source has NO bold (**), your revision must have NO bold.",
+        "- If the source has NO inline code (``), your revision must have NO inline code.",
+        "- Do NOT add emphasis, bold, or any other formatting that is absent from the source.",
+        "- Count the formatting markers in the source and ensure your revision matches.",
         "",
         "RULES FOR ANY REVISIONS YOU MAKE:",
         FORMATTING_RULES,
@@ -261,6 +335,11 @@ def build_site_review_prompt(
         "1. Same concept translated differently across files",
         "2. Glossary violations",
         "3. Tonal inconsistencies (but check English source first — if source tone varies, translation should too)",
+        "",
+        "CRITICAL — FORMATTING IN REVISIONS:",
+        "- Your revised text MUST have EXACTLY the same formatting markers as the source.",
+        "- If the source has NO bold (**), your revision must have NO bold.",
+        "- Do NOT add emphasis, bold, or any formatting that is absent from the source.",
         "",
         "RULES FOR ANY REVISIONS YOU MAKE:",
         FORMATTING_RULES,

@@ -10,5 +10,8 @@ polib>=1.2.0
 # Excel glossary loading (config.py reads glossary.xlsx)
 openpyxl>=3.1.0
 
+# Lightweight lemmatizer for glossary term matching across languages
+simplemma>=1.0.0
+
 # Sphinx i18n tooling — syncs .pot -> .po (sphinx pulled in transitively)
 sphinx-intl>=2.0.0

@@ -6,10 +6,45 @@ glossary term preservation, length ratios) without relying on LLM judgment.
 """
 
 import re
+from collections import defaultdict
 
 import polib
+import simplemma
 
 from .config import TranslationConfig
+
+
+# Mapping from our short language codes to simplemma language codes
+_SIMPLEMMA_LANG = {"fr": "fr", "es": "es", "pt": "pt", "en": "en"}
+
+
+def _lemmatized_words(text: str, lang: str) -> set[str]:
+    """Return the set of lemmatised words in *text* for the given language."""
+    slang = _SIMPLEMMA_LANG.get(lang, lang)
+    return {
+        simplemma.lemmatize(w, lang=slang, greedy=True)
+        for w in re.findall(r'\w+', text.lower())
+    }
+
+
+def _expected_term_found(
+    expected: str, translation_lower: str, lang: str
+) -> bool:
+    """Check whether *expected* glossary translation appears in the translation.
+
+    Tries exact substring first (fast path), then falls back to lemmatised
+    word-set matching so that inflected forms (plurals, conjugations) are
+    recognised.
+    """
+    if expected.lower() in translation_lower:
+        return True
+
+    # Lemmatise the expected multi-word term and the translation, then check
+    # that every lemmatised word from the expected term appears in the
+    # translation's lemmatised words.
+    expected_lemmas = _lemmatized_words(expected, lang)
+    translation_lemmas = _lemmatized_words(translation_lower, lang)
+    return bool(expected_lemmas) and expected_lemmas.issubset(translation_lemmas)
 
 
 # Domains where /en/ in the path should be replaced with /{lang}/
@@ -72,43 +107,121 @@ def fix_url_language_codes(translation: str, language: str) -> str:
     return re.sub(r'https?://[^\s>)"`\']+', replace_url_lang, translation)
 
 
+def _parse_glossary_key(key: str) -> tuple[str, str]:
+    """Parse a glossary key like 'download (verb)' into ('download', 'verb').
+
+    Returns (term, pos) where pos is empty string if not present.
+    """
+    if key.endswith(")") and " (" in key:
+        term, pos = key.rsplit(" (", 1)
+        return term, pos[:-1]
+    return key, ""
+
+
 def check_glossary_terms(
     source: str,
     translation: str,
     language: str = "",
     config: TranslationConfig | None = None,
 ) -> list[dict]:
-    """Check that glossary terms appearing in source are preserved in translation.
+    """Check that glossary terms appearing in source are used in translation.
 
-    For each glossary term found in the source, verifies that either the
-    English term itself or its known translation for this language appears
-    in the translation.
+    For each glossary term found in the source (case-insensitive, word-boundary
+    matched), verifies that the expected translation for this language appears
+    in the translation (also case-insensitive, checking for the stem to allow
+    inflections like plurals and articles).
+
+    Uses positional overlap analysis to avoid false positives when a shorter
+    term only appears as part of a longer matched term in the source text
+    (e.g. "In IATI" inside "In IATI Publisher", "file" inside "profile").
+
+    When a term has multiple POS entries (e.g. download verb/noun), the check
+    passes if any expected translation variant is found.
 
     Returns list of issues with 'description'.
     """
     if config is None:
         return []
 
-    issues = []
+    source_lower = source.lower()
+    translation_lower = translation.lower()
 
-    for term, translations in config.glossary.items():
-        if term not in source:
-            continue
-
-        # The term must appear verbatim OR its glossary translation
-        # for this language must appear.
-        if term in translation:
-            continue
-
+    # Find all glossary terms present in source (word-boundary matching)
+    matched: list[tuple[str, str]] = []  # (term, expected_translation)
+    for key, translations in config.glossary.items():
         lang_translation = translations.get(language, "")
-        if lang_translation and lang_translation in translation:
+        if not lang_translation:
             continue
+        term, _ = _parse_glossary_key(key)
+        pattern = r'\b' + re.escape(term.lower()) + r'\b'
+        if re.search(pattern, source_lower):
+            matched.append((term, lang_translation))
 
-        issues.append({
-            "type": "glossary_term",
-            "description": f"Glossary term '{term}' was modified in translation",
-            "name": term,
-        })
+    # Find positions of each term in source for overlap analysis
+    term_positions: dict[int, list[tuple[int, int]]] = {}
+    for i, (term, _) in enumerate(matched):
+        pattern = r'\b' + re.escape(term.lower()) + r'\b'
+        term_positions[i] = [
+            (m.start(), m.end())
+            for m in re.finditer(pattern, source_lower)
+        ]
+
+    # Remove terms where ALL occurrences overlap with a strictly longer
+    # matched term (e.g. "In IATI" suppressed when only appearing inside
+    # "In IATI Publisher")
+    to_remove: set[int] = set()
+    for i, (term_i, _) in enumerate(matched):
+        positions_i = term_positions.get(i, [])
+        if not positions_i:
+            continue
+        all_overlapped = True
+        for start_i, end_i in positions_i:
+            overlapped = False
+            for j, (term_j, _) in enumerate(matched):
+                if j == i or len(term_j) <= len(term_i):
+                    continue
+                for start_j, end_j in term_positions.get(j, []):
+                    if start_j < end_i and end_j > start_i:
+                        overlapped = True
+                        break
+                if overlapped:
+                    break
+            if not overlapped:
+                all_overlapped = False
+                break
+        if all_overlapped:
+            to_remove.add(i)
+
+    terms_to_check = [m for i, m in enumerate(matched) if i not in to_remove]
+
+    # Group by term to handle multiple POS entries (e.g. download verb/noun).
+    # If ANY expected translation for a term is found, skip it entirely.
+    term_groups: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    for term, expected in terms_to_check:
+        term_groups[term.lower()].append((term, expected))
+
+    issues = []
+    for term_lower, entries in term_groups.items():
+        any_found = False
+        for _, expected in entries:
+            if _expected_term_found(expected, translation_lower, language):
+                any_found = True
+                break
+        # Also accept the English term appearing verbatim
+        if not any_found and term_lower in translation_lower:
+            any_found = True
+
+        if not any_found:
+            original_term = entries[0][0]
+            expected_display = entries[0][1]
+            issues.append({
+                "type": "glossary_term",
+                "description": (
+                    f"Glossary term '{original_term}' should be translated as "
+                    f"'{expected_display}' but was not found in translation"
+                ),
+                "name": original_term,
+            })
 
     return issues
 
@@ -208,6 +321,7 @@ def run_all_checks(
     issues.extend(check_url_language_codes(source, translation, language))
     issues.extend(check_length_ratio(source, translation))
     issues.extend(check_formatting_preserved(source, translation))
+    issues.extend(check_glossary_terms(source, translation, language, config))
 
     return issues
 

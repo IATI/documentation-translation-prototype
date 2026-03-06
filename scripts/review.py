@@ -2,18 +2,16 @@
 """
 Review existing translations for quality.
 
-Read-only by default — shows issues without modifying files.
-Use --apply to write corrections.
+Diagnostic tool — shows potential issues; does not modify files.
+Use translate.py to update translations.
 
 Usage:
-    python scripts/review.py ../iati-publisher-docs                          # All languages, per-file review
+    python scripts/review.py ../iati-publisher-docs                          # All languages, site-wide review
     python scripts/review.py ../iati-publisher-docs --language fr            # Single language
-    python scripts/review.py ../iati-publisher-docs --site-wide              # Cross-file consistency
-    python scripts/review.py ../iati-publisher-docs --apply                  # Apply corrections
-    python scripts/review.py ../iati-publisher-docs --dry-run                # Preview what would be reviewed
+    python scripts/review.py ../iati-publisher-docs --per-file               # Per-file review only (quicker, cheaper)
 
 Environment Variables:
-    MISTRAL_API_KEY: Your Mistral API key (required unless --dry-run)
+    MISTRAL_API_KEY: Your Mistral API key
 """
 
 import argparse
@@ -28,11 +26,17 @@ except ImportError:
     sys.exit(1)
 
 from translation_lib import (
+    LANGUAGE_NAMES,
     SUPPORTED_LANGUAGES,
     TranslationConfig,
     configure_project,
+    get_po_files,
+    is_locked,
+    load_po_file,
 )
 from translation_lib import config as tl_config
+from translation_lib.checks import run_all_checks
+from translation_lib.formatting import truncate
 from translation_lib.review import review_po_files, review_site_wide
 
 
@@ -47,11 +51,9 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/review.py ../iati-publisher-docs                     # Review all languages (report only)
+  python scripts/review.py ../iati-publisher-docs                     # Review all languages (site-wide)
   python scripts/review.py ../iati-publisher-docs --language fr       # Review French only
-  python scripts/review.py ../iati-publisher-docs --site-wide         # Cross-file consistency check
-  python scripts/review.py ../iati-publisher-docs --apply             # Apply suggested corrections
-  python scripts/review.py ../iati-publisher-docs --dry-run           # Preview what would be reviewed
+  python scripts/review.py ../iati-publisher-docs --per-file          # Per-file review only
         """,
     )
     parser.add_argument(
@@ -63,19 +65,9 @@ Examples:
         help=f"Target language (default: all — {', '.join(SUPPORTED_LANGUAGES)})",
     )
     parser.add_argument(
-        "--site-wide",
+        "--per-file",
         action="store_true",
-        help="Cross-file consistency review (default: per-file)",
-    )
-    parser.add_argument(
-        "--apply",
-        action="store_true",
-        help="Apply suggested corrections (default: report only)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview what would be reviewed without calling the LLM",
+        help="Per-file review only (default: site-wide cross-file consistency)",
     )
     parser.add_argument(
         "--config", "-c",
@@ -91,40 +83,55 @@ Examples:
     languages = [args.language] if args.language else SUPPORTED_LANGUAGES
 
     api_key = os.environ.get("MISTRAL_API_KEY")
-    if not api_key and not args.dry_run:
+    if not api_key:
         print("Error: MISTRAL_API_KEY environment variable not set")
         return 1
 
-    client = Mistral(api_key=api_key) if api_key else None
+    client = Mistral(api_key=api_key)
     config = TranslationConfig.load(args.config)
 
-    mode = "report only" if not args.apply else "apply corrections"
-    print(f"Translation Review ({mode})")
+    print("Translation Review")
     print("=" * 40)
     print(f"Project: {tl_config.PROJECT_ROOT}")
 
-    grand_issues = 0
-    grand_applied = 0
-
+    # Deterministic checks (no API calls)
+    check_issues = 0
     for lang in languages:
-        if args.site_wide:
-            issues, applied = review_site_wide(
-                client, lang, config, apply=args.apply, dry_run=args.dry_run
+        lang_name = LANGUAGE_NAMES.get(lang, lang)
+        print(f"\nDeterministic checks for {lang_name}...")
+        lang_issues = 0
+        for po_path in get_po_files(lang):
+            po = load_po_file(po_path)
+            for entry in po.translated_entries():
+                if is_locked(entry):
+                    continue
+                issues = run_all_checks(entry, lang, config)
+                for issue in issues:
+                    print(f"  {po_path.name}: \"{truncate(entry.msgid)}\"")
+                    print(f"    {issue['description']}")
+                    lang_issues += 1
+        if lang_issues == 0:
+            print("  All checks passed")
+        check_issues += lang_issues
+
+    # LLM review
+    llm_issues = 0
+    for lang in languages:
+        if args.per_file:
+            issues, _ = review_po_files(
+                client, lang, config, apply=False
             )
         else:
-            issues, applied = review_po_files(
-                client, lang, config, apply=args.apply, dry_run=args.dry_run
+            issues, _ = review_site_wide(
+                client, lang, config, apply=False
             )
-        grand_issues += issues
-        grand_applied += applied
+        llm_issues += issues
 
     print("\n" + "=" * 40)
-    if args.dry_run:
-        print("Dry run complete.")
-    elif args.apply:
-        print(f"Found {grand_issues} issues, applied {grand_applied} corrections.")
-    else:
-        print(f"Found {grand_issues} issues. Use --apply to write corrections.")
+    total = check_issues + llm_issues
+    print(f"Found {check_issues} deterministic issues, {llm_issues} LLM review issues.")
+    if total > 0:
+        print("Use translate.py to update translations.")
 
     return 0
 

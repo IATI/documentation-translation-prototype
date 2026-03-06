@@ -16,6 +16,7 @@ from translation_lib import (
     configure_project,
     detect_languages,
     get_po_files,
+    is_locked,
     load_po_file,
 )
 from translation_lib import config as tl_config
@@ -40,6 +41,7 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
         total_translated = 0
         total_untranslated = 0
         total_fuzzy = 0
+        total_locked = 0
         file_stats = []
 
         for po_path in po_files:
@@ -47,18 +49,21 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
             translated = len(po.translated_entries())
             untranslated = len(po.untranslated_entries())
             fuzzy = len(po.fuzzy_entries())
+            locked = sum(1 for e in po if e.msgid and is_locked(e))
             total = translated + untranslated
 
             total_translated += translated
             total_untranslated += untranslated
             total_fuzzy += fuzzy
+            total_locked += locked
 
-            if verbose or untranslated > 0 or fuzzy > 0:
+            if verbose or untranslated > 0 or fuzzy > 0 or locked > 0:
                 file_stats.append({
                     "name": po_path.name,
                     "translated": translated,
                     "untranslated": untranslated,
                     "fuzzy": fuzzy,
+                    "locked": locked,
                     "total": total,
                 })
 
@@ -69,6 +74,8 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
             print(f"  Overall: {total_translated}/{grand_total} ({percentage:.1f}%) translated")
             if total_fuzzy > 0:
                 print(f"  Fuzzy (needs review): {total_fuzzy}")
+            if total_locked > 0:
+                print(f"  Locked (manual edits): {total_locked}")
             if total_untranslated > 0:
                 print(f"  Missing: {total_untranslated}")
         else:
@@ -78,13 +85,19 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
         if file_stats:
             print(f"\n  Per-file breakdown:")
             for stats in file_stats:
-                status = ""
+                status_parts = []
                 if stats["untranslated"] > 0:
-                    status = f" ({stats['untranslated']} missing)"
-                elif stats["fuzzy"] > 0:
-                    status = f" ({stats['fuzzy']} fuzzy)"
+                    status_parts.append(f"{stats['untranslated']} missing")
+                if stats["fuzzy"] > 0:
+                    status_parts.append(f"{stats['fuzzy']} fuzzy")
+                if stats["locked"] > 0:
+                    status_parts.append(f"{stats['locked']} locked")
+                if status_parts:
+                    status = f" ({', '.join(status_parts)})"
                 elif verbose:
                     status = " (complete)"
+                else:
+                    status = ""
 
                 pct = (stats["translated"] / stats["total"] * 100) if stats["total"] > 0 else 100
                 print(f"    {stats['name']}: {stats['translated']}/{stats['total']} ({pct:.0f}%){status}")

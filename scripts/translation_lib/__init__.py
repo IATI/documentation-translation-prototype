@@ -14,12 +14,12 @@ from .config import (
     scaffold_language,
 )
 from .llm_utils import (
-    call_reviewer_api,
-    call_translator_api,
+    call_llm,
     parse_json_response,
 )
 from .po_utils import (
     get_po_files,
+    is_locked,
     load_po_file,
 )
 from .quality import (
@@ -35,10 +35,10 @@ __all__ = [
     "configure_project",
     "detect_languages",
     "scaffold_language",
-    "call_reviewer_api",
-    "call_translator_api",
+    "call_llm",
     "parse_json_response",
     "get_po_files",
+    "is_locked",
     "load_po_file",
     "QualityResult",
     "ensure_entry_quality",
