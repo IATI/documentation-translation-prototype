@@ -387,6 +387,19 @@ Examples:
             return 1
         update_po_files(languages)
 
+    # Strip obsolete entries from all PO files
+    if not args.dry_run:
+        total_obsolete = 0
+        for lang in languages:
+            for po_path in get_po_files(lang):
+                po = load_po_file(po_path)
+                removed = strip_obsolete(po)
+                if removed:
+                    po.save()
+                    total_obsolete += removed
+        if total_obsolete:
+            print(f"Removed {total_obsolete} obsolete entries")
+
     # Steps 3-5: Translate, review, handle fuzzy for each language
     summary: dict[str, dict] = {}
 
