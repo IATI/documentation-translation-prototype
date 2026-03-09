@@ -13,6 +13,7 @@ FORMATTING_RULES = """
 - Translate the COMPLETE text — every sentence, every clause. Never summarize or truncate.
 - Preserve ALL reStructuredText and Markdown formatting (links, bold, italics, code blocks).
 - Do NOT add formatting (bold, italic) that is not in the English source.
+- Do NOT add content that is not in the English source (e.g. captions, labels, figure numbers, explanatory notes).
 - Do NOT remove formatting that IS in the English source.
 - Copy URLs exactly — never retype or modify them. The ONE exception: change language codes in URL paths (e.g. /en/ -> /fr/).
 - Do NOT translate text inside backticks (code/commands).
@@ -233,8 +234,9 @@ def build_review_prompt(
         "",
         "Only flag translations that have REAL ERRORS. Do NOT suggest stylistic preferences.",
         "",
-        "NOTE: URL language codes and formatting markers (bold, links, code)",
+        "NOTE: URL language codes and formatting markers (bold, italic, code, links)",
         "are checked separately by automated tools. Do NOT flag those here.",
+        "DO flag: added content not in the source, or missing parts of the source meaning.",
         "",
         "REVISE only if:",
         "- Translation is INCOMPLETE — parts of the source meaning are missing",

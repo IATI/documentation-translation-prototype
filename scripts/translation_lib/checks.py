@@ -314,6 +314,14 @@ def fix_list_prefix(source: str, translation: str) -> str | None:
     return prefix + translation
 
 
+def _count_italic_spans(text: str) -> int:
+    """Count *italic* spans that aren't part of **bold** markers."""
+    # Remove **bold** spans first so their asterisks don't confuse us
+    stripped = re.sub(r'\*\*[^*]+\*\*', '', text)
+    # Count genuine *italic* spans
+    return len(re.findall(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', stripped))
+
+
 def check_formatting_preserved(source: str, translation: str) -> list[dict]:
     """Check that key RST/Markdown formatting is preserved.
 
@@ -338,6 +346,18 @@ def check_formatting_preserved(source: str, translation: str) -> list[dict]:
                     f"{source_count} in source vs {trans_count} in translation"
                 ),
             })
+
+    # Check for italic spans (*text*) that aren't part of **bold**
+    source_italics = _count_italic_spans(source)
+    trans_italics = _count_italic_spans(translation)
+    if source_italics != trans_italics:
+        issues.append({
+            "type": "formatting",
+            "description": (
+                f"Mismatched italic spans (*...*): "
+                f"{source_italics} in source vs {trans_italics} in translation"
+            ),
+        })
 
     # Check RST link syntax: `text <url>`_
     source_rst_links = re.findall(r'`[^`]+<[^>]+>`_', source)

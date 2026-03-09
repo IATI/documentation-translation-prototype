@@ -1,4 +1,5 @@
 {
+  "_comment": "Few-shot examples: 'source', 'target_language', and 'translation' are sent to the LLM. 'explanation' is for human readers only and is NOT sent to the LLM.",
   "few_shot_examples": [
     {
       "source": "Click the **Save** button to save your changes.",
@@ -35,6 +36,18 @@
       "target_language": "es",
       "translation": "Vaya a **Configuración** > **Configuración de publicación**.",
       "explanation": "Menu paths should be translated. Bold formatting preserved."
+    },
+    {
+      "source": "Screenshot of the settings page.",
+      "target_language": "fr",
+      "translation": "Capture d'écran de la page des paramètres.",
+      "explanation": "Image alt-text: translate faithfully without adding captions, figure numbers, or italic formatting. A previous LLM translation added '*Figure 1 :*' prefix here — that's wrong."
+    },
+    {
+      "source": "Screenshot of the settings page.",
+      "target_language": "es",
+      "translation": "Captura de pantalla de la página de configuración.",
+      "explanation": "Image alt-text: translate faithfully without adding captions, figure numbers, or italic formatting."
     }
   ],
   "notes": "Translation Guidelines for IATI Publisher Documentation:\n\n1. FORMALITY: Use formal language throughout:\n   - French: Use 'vous' (formal you), never 'tu'\n   - Spanish: Use 'usted' form, never 'tú'\n\n2. FORMATTING: Preserve ALL markup exactly:\n   - reStructuredText links: `text <url>`_ (keep backticks and angle brackets)\n   - Markdown bold: **text** \n   - Markdown italic: *text*\n   - Code/commands in backticks: `command`\n   - URLs must remain unchanged\n\n3. TERMINOLOGY: \n   - Keep 'IATI Publisher' as-is (product name)\n   - French uses 'IITA' for 'IATI' (the initiative)\n   - Spanish keeps 'IATI' \n   - Technical terms should be translated consistently per glossary\n\n4. STYLE:\n   - Match the professional, instructional tone of the original\n   - Keep sentences clear and concise\n   - Use standard technical documentation conventions for each language\n\n5. NUMBERS & DATES:\n   - Keep number formats appropriate for target locale\n   - Date formats may need adjustment for locale conventions"
