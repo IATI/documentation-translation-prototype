@@ -262,6 +262,58 @@ def check_length_ratio(source: str, translation: str) -> list[dict]:
     return issues
 
 
+def _extract_list_prefix(text: str) -> str | None:
+    """Extract a numbered/lettered list prefix from the start of text.
+
+    Recognises patterns like: "1)", "2.", "(a)", "(3)", "a)", "iv." etc.
+    Returns the prefix string (e.g. "1) ") including trailing whitespace,
+    or None if not found.
+    """
+    m = re.match(r'^(\(?[0-9a-zA-Z]+[).])\s*', text)
+    return m.group(0) if m else None
+
+
+def check_list_prefix(source: str, translation: str) -> list[dict]:
+    """Check that numbered/lettered list prefixes are preserved.
+
+    If the source starts with a list prefix (e.g. "1) ", "a. "),
+    the translation must start with the same prefix.
+    """
+    prefix = _extract_list_prefix(source)
+    if prefix is None:
+        return []
+
+    trans_prefix = _extract_list_prefix(translation)
+    if trans_prefix is not None and trans_prefix.rstrip() == prefix.rstrip():
+        return []
+
+    return [{
+        "type": "list_prefix",
+        "description": (
+            f"Source starts with list prefix '{prefix.rstrip()}' "
+            f"but translation does not"
+        ),
+        "prefix": prefix.rstrip(),
+    }]
+
+
+def fix_list_prefix(source: str, translation: str) -> str | None:
+    """Auto-fix a missing list prefix by prepending it to the translation.
+
+    Returns the fixed translation, or None if no fix was needed.
+    """
+    prefix = _extract_list_prefix(source)
+    if prefix is None:
+        return None
+
+    trans_prefix = _extract_list_prefix(translation)
+    if trans_prefix is not None and trans_prefix.rstrip() == prefix.rstrip():
+        return None
+
+    # Prepend the source prefix to the translation
+    return prefix + translation
+
+
 def check_formatting_preserved(source: str, translation: str) -> list[dict]:
     """Check that key RST/Markdown formatting is preserved.
 
@@ -321,6 +373,7 @@ def run_all_checks(
     issues.extend(check_url_language_codes(source, translation, language))
     issues.extend(check_length_ratio(source, translation))
     issues.extend(check_formatting_preserved(source, translation))
+    issues.extend(check_list_prefix(source, translation))
     issues.extend(check_glossary_terms(source, translation, language, config))
 
     return issues
@@ -366,6 +419,7 @@ def auto_fix_entry(
 
     Currently auto-fixes:
     - URL language codes
+    - Missing list prefixes
 
     Returns list of descriptions of fixes applied.
     """
@@ -376,5 +430,12 @@ def auto_fix_entry(
     if fixed != entry.msgstr:
         entry.msgstr = fixed
         fixes.append(f"Fixed URL language codes (/en/ -> /{language}/)")
+
+    # Fix missing list prefixes
+    fixed = fix_list_prefix(entry.msgid, entry.msgstr)
+    if fixed is not None:
+        prefix = _extract_list_prefix(entry.msgid).rstrip()
+        entry.msgstr = fixed
+        fixes.append(f"Fixed missing list prefix '{prefix}'")
 
     return fixes

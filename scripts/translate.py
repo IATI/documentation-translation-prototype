@@ -41,6 +41,7 @@ from translation_lib import (
     load_po_file,
     parse_json_response,
     scaffold_language,
+    strip_obsolete,
 )
 from translation_lib import config as tl_config
 from translation_lib.checks import run_all_checks
@@ -181,6 +182,7 @@ def translate_language(
             total_new += 1
 
         if not dry_run and file_new > 0:
+            strip_obsolete(po)
             po.save()
 
     if total_new == 0:
@@ -297,6 +299,7 @@ def handle_fuzzy_language(
             print(f"      WARNING: {issue['description']}")
 
     for po_file in files_to_save.values():
+        strip_obsolete(po_file)
         po_file.save()
 
     return approved, revised
@@ -452,6 +455,7 @@ Examples:
                             po_path.name, entry.msgid, issue["description"],
                         ))
             for po in modified_pos.values():
+                strip_obsolete(po)
                 po.save()
         else:
             # Dry run: just count issues without fixing

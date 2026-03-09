@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -145,6 +146,30 @@ def build_english_check_prompt(entries: list[dict]) -> str:
 
 
 # -----------------------------------------------------------------------------
+# POT extraction
+# -----------------------------------------------------------------------------
+
+
+def extract_strings() -> bool:
+    """Run sphinx-build to generate .pot files. Returns True on success."""
+    print("Extracting strings from documentation...")
+    result = subprocess.run(
+        ["sphinx-build", "-b", "gettext", ".", "_build/locale"],
+        cwd=str(tl_config.DOCS_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  Error running sphinx-build: {result.stderr}")
+        return False
+
+    pot_dir = tl_config.DOCS_DIR / "_build" / "locale"
+    pot_files = list(pot_dir.glob("*.pot")) if pot_dir.exists() else []
+    print(f"  Generated {len(pot_files)} .pot files")
+    return True
+
+
+# -----------------------------------------------------------------------------
 # POT file loading
 # -----------------------------------------------------------------------------
 
@@ -217,11 +242,14 @@ Examples:
     print("=" * 60)
     print(f"Project: {tl_config.PROJECT_ROOT}")
 
+    # Extract strings (regenerate POT files)
+    if not extract_strings():
+        return 1
+
     # Load POT files
     pot_files = get_pot_files()
     if not pot_files:
         print(f"\nNo .pot files found in {tl_config.POT_DIR}")
-        print("Run 'sphinx-build -b gettext' first, or use translate.py which does this automatically.")
         return 1
 
     # Collect all entries

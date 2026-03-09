@@ -12,7 +12,7 @@ from .checks import fix_url_language_codes, validate_revision
 from .config import LANGUAGE_NAMES, SITE_REVIEW_CHUNK_SIZE, TranslationConfig
 from .formatting import format_diff, location
 from .llm_utils import call_llm, parse_json_response
-from .po_utils import get_po_files, is_locked, load_po_file
+from .po_utils import get_po_files, is_locked, load_po_file, strip_obsolete
 from .prompts import build_review_prompt, build_site_review_prompt
 
 
@@ -114,6 +114,7 @@ def review_po_files(
                 file_applied += 1
 
         if apply and file_applied > 0:
+            strip_obsolete(po)
             po.save()
         total_applied += file_applied
 
@@ -235,6 +236,7 @@ def review_site_wide(
         saved = set()
         for po_id, po_file in files_to_save.items():
             if po_id not in saved:
+                strip_obsolete(po_file)
                 po_file.save()
                 saved.add(po_id)
 

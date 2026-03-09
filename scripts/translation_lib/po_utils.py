@@ -22,6 +22,21 @@ def load_po_file(path: Path) -> polib.POFile:
     return polib.pofile(str(path))
 
 
+def strip_obsolete(po: polib.POFile) -> int:
+    """Remove obsolete (#~) entries from a PO file in-place.
+
+    These are left behind by sphinx-intl update when source strings are
+    removed or changed. They serve no purpose in this pipeline.
+
+    Returns the number of entries removed.
+    """
+    count = len(po.obsolete_entries())
+    if count:
+        for entry in po.obsolete_entries():
+            po.remove(entry)
+    return count
+
+
 def is_locked(entry: polib.POEntry) -> bool:
     """Check if an entry is locked (has a '# LOCKED' translator comment).
 

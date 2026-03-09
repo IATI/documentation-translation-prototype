@@ -16,6 +16,7 @@ FORMATTING_RULES = """
 - Do NOT remove formatting that IS in the English source.
 - Copy URLs exactly — never retype or modify them. The ONE exception: change language codes in URL paths (e.g. /en/ -> /fr/).
 - Do NOT translate text inside backticks (code/commands).
+- Preserve numbered/lettered list prefixes exactly (e.g. "1)", "2.", "(a)") — do not drop or renumber them.
 - Use glossary and UI terms exactly as specified.
 """.strip()
 

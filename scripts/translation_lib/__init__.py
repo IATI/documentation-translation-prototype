@@ -21,6 +21,7 @@ from .po_utils import (
     get_po_files,
     is_locked,
     load_po_file,
+    strip_obsolete,
 )
 from .quality import (
     QualityResult,
@@ -40,6 +41,7 @@ __all__ = [
     "get_po_files",
     "is_locked",
     "load_po_file",
+    "strip_obsolete",
     "QualityResult",
     "ensure_entry_quality",
 ]
