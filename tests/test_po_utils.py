@@ -5,7 +5,12 @@ strip_obsolete is the regression for "bugfix: remove all obsolete translations".
 
 import polib
 
-from translation_lib.po_utils import is_locked, strip_obsolete
+from translation_lib.po_utils import (
+    get_review_fingerprint,
+    is_locked,
+    set_review_fingerprint,
+    strip_obsolete,
+)
 
 
 def _make_obsolete(msgid, msgstr):
@@ -55,3 +60,30 @@ def test_is_locked_ignores_other_comments():
 def test_is_locked_no_comment():
     entry = polib.POEntry(msgid="x", msgstr="y")
     assert is_locked(entry) is False
+
+
+# --- review fingerprint markers ---------------------------------------------
+
+
+def test_review_fingerprint_round_trip():
+    entry = polib.POEntry(msgid="x", msgstr="y")
+    assert get_review_fingerprint(entry) is None
+    assert set_review_fingerprint(entry, "abc123") is True
+    assert get_review_fingerprint(entry) == "abc123"
+
+
+def test_set_review_fingerprint_noop_when_unchanged():
+    entry = polib.POEntry(msgid="x", msgstr="y")
+    set_review_fingerprint(entry, "abc123")
+    # Second identical write should report "no change" so callers skip saving.
+    assert set_review_fingerprint(entry, "abc123") is False
+    assert set_review_fingerprint(entry, "def456") is True
+    assert get_review_fingerprint(entry) == "def456"
+
+
+def test_review_fingerprint_coexists_with_locked():
+    entry = polib.POEntry(msgid="x", msgstr="y", tcomment="LOCKED: keep")
+    set_review_fingerprint(entry, "abc123")
+    # Both markers survive: LOCKED is still detected and the fingerprint reads back.
+    assert is_locked(entry) is True
+    assert get_review_fingerprint(entry) == "abc123"

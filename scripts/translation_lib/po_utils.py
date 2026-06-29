@@ -47,3 +47,39 @@ def is_locked(entry: polib.POEntry) -> bool:
     if not entry.tcomment:
         return False
     return any(line.strip().startswith("LOCKED") for line in entry.tcomment.splitlines())
+
+
+# Translator-comment marker recording that an entry passed review under a given
+# standard. Stored like LOCKED (in entry.tcomment) so it survives
+# ``sphinx-intl update``. The value is an opaque fingerprint (see fingerprint.py).
+REVIEW_FINGERPRINT_PREFIX = "REVIEWED:"
+
+
+def get_review_fingerprint(entry: polib.POEntry) -> str | None:
+    """Return the stored review fingerprint for an entry, or None if absent."""
+    if not entry.tcomment:
+        return None
+    for line in entry.tcomment.splitlines():
+        line = line.strip()
+        if line.startswith(REVIEW_FINGERPRINT_PREFIX):
+            return line[len(REVIEW_FINGERPRINT_PREFIX):].strip()
+    return None
+
+
+def set_review_fingerprint(entry: polib.POEntry, fingerprint: str) -> bool:
+    """Store/update the review fingerprint in the entry's translator comment.
+
+    Other translator-comment lines (e.g. LOCKED) are preserved. Returns True if
+    the comment actually changed, False if the fingerprint was already current
+    (so callers can avoid rewriting unchanged files).
+    """
+    kept = [
+        line for line in (entry.tcomment or "").splitlines()
+        if not line.strip().startswith(REVIEW_FINGERPRINT_PREFIX)
+    ]
+    kept.append(f"{REVIEW_FINGERPRINT_PREFIX} {fingerprint}")
+    new_tcomment = "\n".join(kept)
+    if new_tcomment == (entry.tcomment or ""):
+        return False
+    entry.tcomment = new_tcomment
+    return True

@@ -5,15 +5,33 @@ Provides per-file review and site-wide cross-file consistency review.
 """
 
 import json
+import re
 
 import polib
 
 from .checks import fix_url_language_codes, validate_revision
 from .config import LANGUAGE_NAMES, SITE_REVIEW_CHUNK_SIZE, TranslationConfig
+from .fingerprint import is_review_current, standard_version
 from .formatting import format_diff, location
 from .llm_utils import call_llm, parse_json_response
 from .po_utils import get_po_files, is_locked, load_po_file, strip_obsolete
-from .prompts import build_review_prompt, build_site_review_prompt
+from .prompts import (
+    REVIEW_ERROR_CATEGORIES,
+    build_review_prompt,
+    build_site_review_prompt,
+)
+
+
+def _span_present(span: str, text: str) -> bool:
+    """True if `span` appears in `text`, ignoring case and whitespace runs.
+
+    Used to verify the reviewer cited real evidence quoted from the source,
+    rather than fabricating a justification for a stylistic change.
+    """
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip().lower()
+
+    return norm(span) in norm(text)
 
 
 def review_po_files(
@@ -33,6 +51,7 @@ def review_po_files(
 
     total_issues = 0
     total_applied = 0
+    std_version = standard_version(config, language)
 
     for po_path in get_po_files(language):
         po = load_po_file(po_path)
@@ -45,11 +64,18 @@ def review_po_files(
             print(f"  {po_path.name}: {len(translated)} translations to review")
             continue
 
-        # Build review entries (skip locked)
+        # Build review entries. Skip locked entries, and skip entries that
+        # already passed review under the current standard (unchanged source,
+        # translation, glossary and guidelines) — re-reviewing them just churns
+        # correct translations across runs.
         review_entries = []
         entry_map: dict[int, polib.POEntry] = {}
+        skipped_current = 0
         for i, entry in enumerate(translated):
             if is_locked(entry):
+                continue
+            if is_review_current(entry, language, std_version):
+                skipped_current += 1
                 continue
             review_entries.append({
                 "index": i,
@@ -63,7 +89,8 @@ def review_po_files(
             continue
 
         if verbose:
-            print(f"  {po_path.name}: {len(translated)} translations checked")
+            note = f", {skipped_current} unchanged" if skipped_current else ""
+            print(f"  {po_path.name}: {len(review_entries)} translations to review{note}")
 
         prompt = build_review_prompt(
             review_entries, language, config, po_path.name
@@ -90,6 +117,19 @@ def review_po_files(
             reason = rev.get("reason", rev.get("explanation", ""))
 
             if idx is None or revised is None or idx not in entry_map:
+                continue
+
+            # Enforce the revision contract: a genuine error names one of the
+            # allowed categories and quotes the offending source span. Drop
+            # revisions that can't supply real evidence — this is the main
+            # brake on stylistic churn across re-runs.
+            category = (rev.get("category") or "").strip().lower()
+            source_span = (rev.get("source_span") or "").strip()
+            if category not in REVIEW_ERROR_CATEGORIES:
+                print(f"    SKIPPED [{idx}] revision without a valid error category")
+                continue
+            if not source_span or not _span_present(source_span, entry_map[idx].msgid):
+                print(f"    SKIPPED [{idx}] revision did not cite a real source span")
                 continue
 
             # Auto-fix URL language codes in the revision (reviewer often
@@ -150,6 +190,8 @@ def review_site_wide(
     all_entries: list[dict] = []
     entry_map: dict[int, tuple[polib.POFile, polib.POEntry]] = {}
     global_idx = 0
+    std_version = standard_version(config, language)
+    stale_exists = False
 
     for po_path in get_po_files(language):
         po = load_po_file(po_path)
@@ -165,9 +207,19 @@ def review_site_wide(
             })
             entry_map[global_idx] = (po, entry)
             global_idx += 1
+            if not is_review_current(entry, language, std_version):
+                stale_exists = True
 
     if not all_entries:
         print("  No translations found.")
+        return 0, 0
+
+    # Cross-file consistency depends on the full set, so we don't drop individual
+    # entries from the prompt. But if every translation already passed review
+    # under the current standard, there is nothing new to compare — skip the
+    # phase entirely rather than re-reviewing an unchanged site.
+    if not stale_exists and not dry_run:
+        print("  All translations unchanged since last review — skipping.")
         return 0, 0
 
     file_names = {e["file_name"] for e in all_entries}

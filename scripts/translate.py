@@ -49,6 +49,8 @@ from translation_lib import (
 )
 from translation_lib import config as tl_config
 from translation_lib.checks import run_all_checks
+from translation_lib.fingerprint import entry_fingerprint, standard_version
+from translation_lib.po_utils import set_review_fingerprint
 from translation_lib.formatting import fmt_duration, format_diff, location, truncate
 from translation_lib.prompts import (
     build_fuzzy_validation_prompt,
@@ -486,6 +488,28 @@ def _process_language(
         for po in modified_pos.values():
             strip_obsolete(po)
             po.save()
+
+        # Record review fingerprints for every settled translation, so future
+        # runs skip re-reviewing entries that haven't changed and that still
+        # match the current standard. Only done when review actually ran —
+        # with --skip-review the entries weren't reviewed, so we must not mark
+        # them as current. A glossary/guideline change shifts the standard
+        # version, making these fingerprints stale so the entries are
+        # re-reviewed automatically next run.
+        if not args.skip_review:
+            std_version = standard_version(config, lang)
+            for po_path in get_po_files(lang):
+                po = load_po_file(po_path)
+                changed = False
+                for entry in po.translated_entries():
+                    if is_locked(entry):
+                        continue
+                    fp = entry_fingerprint(entry, lang, std_version)
+                    if set_review_fingerprint(entry, fp):
+                        changed = True
+                if changed:
+                    strip_obsolete(po)
+                    po.save()
     else:
         # Dry run: count issues without fixing
         for po_path in get_po_files(lang):

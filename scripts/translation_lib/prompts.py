@@ -24,6 +24,14 @@ FORMATTING_RULES = """
 """.strip()
 
 
+# Error categories the per-file reviewer is allowed to cite. A proposed
+# revision that does not name one of these — with a quoted source span as
+# evidence — is discarded in review.py. This is the main brake on stylistic
+# churn: the reviewer must justify a change as a concrete error, not a
+# preference.
+REVIEW_ERROR_CATEGORIES = ("incomplete", "mistranslation", "glossary", "register")
+
+
 # -----------------------------------------------------------------------------
 # Shared Utilities
 # -----------------------------------------------------------------------------
@@ -242,11 +250,23 @@ def build_review_prompt(
         "are checked separately by automated tools. Do NOT flag those here.",
         "DO flag: added content not in the source, or missing parts of the source meaning.",
         "",
-        "REVISE only if:",
-        "- Translation is INCOMPLETE — parts of the source meaning are missing",
-        "- Translation is WRONG — it says something different from the source",
-        "- A glossary/UI term is translated incorrectly (check terms list below)",
-        "- The register/formality is wrong (e.g. informal 'tu' instead of formal 'vous')",
+        "REVISE only if you can name ONE of these specific error categories:",
+        '- "incomplete" — parts of the source meaning are missing from the translation',
+        '- "mistranslation" — the translation says something DIFFERENT from the source',
+        '- "glossary" — a glossary/UI term is translated incorrectly (check terms list below)',
+        '- "register" — wrong formality (e.g. informal "tu" instead of formal "vous")',
+        "",
+        "If the problem is not clearly one of these, do NOT revise — approve it.",
+        "",
+        "EVIDENCE REQUIRED FOR EVERY REVISION:",
+        '- "category": exactly one of the four categories above',
+        '- "source_span": the exact words quoted from the SOURCE that are mistranslated',
+        '  or omitted (copy them verbatim — they must appear in the source text)',
+        '- "translation_span": the exact words quoted from the current TRANSLATION that',
+        '  are wrong (use "" only for an "incomplete" omission with nothing to quote)',
+        "A revision missing a category, or whose source_span is not actually present in",
+        "the source text, will be DISCARDED — so do not invent evidence to justify a",
+        "stylistic preference.",
         "",
         "Do NOT revise for:",
         "- URL language codes (/en/ vs /fr/ etc.) — handled by automated checks",
@@ -293,12 +313,17 @@ def build_review_prompt(
         "",
         "If any have real errors:",
         '{"status": "revised", "revisions": [',
-        '  {"index": 0, "revised": "corrected translation", "reason": "explanation"}',
+        '  {"index": 0, "category": "mistranslation",',
+        '   "source_span": "exact words from the source",',
+        '   "translation_span": "exact words from the translation that are wrong",',
+        '   "revised": "the COMPLETE corrected translation",',
+        '   "reason": "brief explanation"}',
         "]}",
         "",
         "IMPORTANT:",
         "- Only include entries with real errors, not stylistic preferences",
         "- When in doubt, approve — do not change things that are already correct",
+        '- Every revision MUST include "category" and a real "source_span"',
         '- The "revised" field must contain the COMPLETE corrected translation',
         "- Return ONLY valid JSON",
     ])
