@@ -5,6 +5,18 @@ Display formatting helpers for translation CLI output.
 import polib
 
 
+def fmt_duration(seconds: float) -> str:
+    """Format an elapsed duration as a short human string (e.g. '5s', '3m07s', '1h02m')."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    mins, secs = divmod(seconds, 60)
+    if mins < 60:
+        return f"{mins}m{secs:02d}s"
+    hours, mins = divmod(mins, 60)
+    return f"{hours}h{mins:02d}m"
+
+
 def truncate(text: str, length: int = 60) -> str:
     """Truncate text for display."""
     text = text.replace("\n", " ")

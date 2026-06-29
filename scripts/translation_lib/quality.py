@@ -67,9 +67,14 @@ def ensure_entry_quality(
 
         try:
             data = parse_json_response(raw)
-            corrected = data.get("translation", raw)
         except json.JSONDecodeError:
-            corrected = raw
+            data = None
+        corrected = data.get("translation") if isinstance(data, dict) else None
+
+        # If we couldn't extract a usable correction, don't overwrite the
+        # existing translation with raw output — just try again.
+        if not isinstance(corrected, str) or not corrected.strip():
+            continue
 
         # Step 4: Validate the correction doesn't introduce new issues
         new_issues = validate_revision(

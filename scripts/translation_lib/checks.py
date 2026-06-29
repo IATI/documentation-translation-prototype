@@ -399,6 +399,19 @@ def run_all_checks(
     return issues
 
 
+def _issue_key(issue: dict) -> tuple[str, str]:
+    """Stable identity for an issue, used to compare two check results.
+
+    Variable numbers (counts, ratios) are stripped from the description so that
+    issues of the same *kind* compare equal — e.g. a translation that is still
+    "suspiciously long" after revision is not mistaken for a newly introduced
+    problem. Distinct kinds (bold vs italic mismatch, different glossary terms,
+    different URLs) keep distinct keys because their descriptions differ in
+    non-numeric text.
+    """
+    return (issue["type"], re.sub(r"\d+", "", issue.get("description", "")))
+
+
 def validate_revision(
     source: str,
     original: str,
@@ -418,16 +431,10 @@ def validate_revision(
     orig_entry = polib.POEntry(msgid=source, msgstr=original)
     rev_entry = polib.POEntry(msgid=source, msgstr=revised)
 
-    orig_issues = {
-        (i["type"], i.get("name", ""), i.get("url", ""))
-        for i in run_all_checks(orig_entry, language, config)
-    }
+    orig_issues = {_issue_key(i) for i in run_all_checks(orig_entry, language, config)}
     rev_issues = run_all_checks(rev_entry, language, config)
 
-    new_issues = [
-        i for i in rev_issues
-        if (i["type"], i.get("name", ""), i.get("url", "")) not in orig_issues
-    ]
+    new_issues = [i for i in rev_issues if _issue_key(i) not in orig_issues]
     return new_issues
 
 

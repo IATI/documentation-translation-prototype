@@ -50,6 +50,44 @@ def call_llm(
     return response.choices[0].message.content.strip()
 
 
+def describe_api_error(exc: Exception) -> str | None:
+    """Return a plain-language explanation for a known API/network error.
+
+    Returns None if the error isn't a recognised API/connectivity problem, in
+    which case the caller should treat it as an unexpected error.
+    """
+    status = getattr(exc, "status_code", None)
+    name = type(exc).__name__.lower()
+    msg = str(exc).lower()
+
+    if status in (401, 403):
+        return (
+            "Authentication failed — check that MISTRAL_API_KEY is set to a "
+            "valid, active key. A paid Mistral account is required."
+        )
+    if status == 429:
+        return (
+            "The Mistral API kept rate-limiting requests and did not recover "
+            "after several retries. Wait a few minutes and run the tool again."
+        )
+    if isinstance(status, int) and 500 <= status < 600:
+        return (
+            f"The Mistral API returned a server error (HTTP {status}). This is "
+            "usually temporary — try again shortly."
+        )
+    connection_markers = (
+        "connect", "timeout", "timed out", "connection", "network",
+        "getaddrinfo", "name resolution", "temporarily unavailable",
+        "ssl", "max retries",
+    )
+    if any(m in name for m in connection_markers) or any(m in msg for m in connection_markers):
+        return (
+            "Could not reach the Mistral API — check your internet connection "
+            "and try again."
+        )
+    return None
+
+
 def _strip_code_blocks(text: str) -> str:
     """Extract content from markdown code blocks (```json ... ```)."""
     lines = text.split("\n")

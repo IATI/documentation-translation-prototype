@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
 try:
@@ -29,7 +30,7 @@ except ImportError:
     print("Error: mistralai package not installed. Run: pip install mistralai")
     sys.exit(1)
 
-from translation_lib import configure_project, call_llm, parse_json_response
+from translation_lib import configure_project, call_llm, describe_api_error, parse_json_response
 from translation_lib import config as tl_config
 from translation_lib.formatting import truncate
 
@@ -62,14 +63,6 @@ def check_formatting(text: str) -> list[str]:
     single_backticks = stripped.count("`")
     if single_backticks % 2 != 0:
         issues.append(f"Unbalanced single backtick (`): found {single_backticks} (expected even)")
-
-    # Check RST link syntax: `text <url>`_ — look for malformed variants
-    # Correct: `link text <https://example.com>`_
-    # Broken: missing closing `_ or missing angle brackets
-    partial_rst = re.findall(r'`[^`]+<https?://[^>]+>[^`]*(?!`_)', text)
-    for match in partial_rst:
-        if not match.endswith("`_") and "`_" not in text[text.index(match):text.index(match) + len(match) + 2]:
-            pass  # Handled by the balanced backtick check above
 
     # Check for unclosed angle brackets in URLs
     open_angles = text.count("<")
@@ -301,36 +294,46 @@ Examples:
     print(f"\nSpelling and grammar checks ({len(chunks)} chunk(s))...")
     llm_issues = 0
 
-    for chunk_num, chunk in enumerate(chunks, 1):
-        if len(chunks) > 1:
-            print(f"  Checking chunk {chunk_num}/{len(chunks)} ({len(chunk)} entries)...")
+    try:
+        for chunk_num, chunk in enumerate(chunks, 1):
+            if len(chunks) > 1:
+                print(f"  Checking chunk {chunk_num}/{len(chunks)} ({len(chunk)} entries)...")
 
-        prompt = build_english_check_prompt(chunk)
-        result = call_llm(client, prompt, json_mode=True)
+            prompt = build_english_check_prompt(chunk)
+            result = call_llm(client, prompt, json_mode=True)
 
-        try:
-            response = parse_json_response(result)
-        except json.JSONDecodeError as e:
-            print(f"  Warning: Could not parse LLM response for chunk {chunk_num}: {e}")
-            continue
-
-        if response.get("status") == "ok":
-            continue
-
-        for issue in response.get("issues", []):
-            idx = issue.get("index")
-            description = issue.get("description", "")
-            suggestion = issue.get("suggestion", "")
-
-            if idx is None or idx < 0 or idx >= len(all_entries):
+            try:
+                response = parse_json_response(result)
+            except json.JSONDecodeError as e:
+                print(f"  Warning: Could not parse LLM response for chunk {chunk_num}: {e}")
                 continue
 
-            entry = all_entries[idx]
-            llm_issues += 1
-            print(f"  {entry['file']}: \"{truncate(entry['text'])}\"")
-            print(f"    {description}")
-            if suggestion:
-                print(f"    Suggestion: {suggestion}")
+            if response.get("status") == "ok":
+                continue
+
+            for issue in response.get("issues", []):
+                idx = issue.get("index")
+                description = issue.get("description", "")
+                suggestion = issue.get("suggestion", "")
+
+                if idx is None or idx < 0 or idx >= len(all_entries):
+                    continue
+
+                entry = all_entries[idx]
+                llm_issues += 1
+                print(f"  {entry['file']}: \"{truncate(entry['text'])}\"")
+                print(f"    {description}")
+                if suggestion:
+                    print(f"    Suggestion: {suggestion}")
+    except Exception as e:
+        friendly = describe_api_error(e)
+        print()
+        if friendly:
+            print(f"Error: {friendly}")
+            return 1
+        print(f"Unexpected error: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return 1
 
     if llm_issues == 0:
         print("  No spelling or grammar issues found")

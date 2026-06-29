@@ -17,6 +17,7 @@ Environment Variables:
 import argparse
 import os
 import sys
+import traceback
 from pathlib import Path
 
 try:
@@ -30,6 +31,7 @@ from translation_lib import (
     SUPPORTED_LANGUAGES,
     TranslationConfig,
     configure_project,
+    describe_api_error,
     get_po_files,
     is_locked,
     load_po_file,
@@ -116,16 +118,26 @@ Examples:
 
     # LLM review
     llm_issues = 0
-    for lang in languages:
-        if args.per_file:
-            issues, _ = review_po_files(
-                client, lang, config, apply=False
-            )
-        else:
-            issues, _ = review_site_wide(
-                client, lang, config, apply=False
-            )
-        llm_issues += issues
+    try:
+        for lang in languages:
+            if args.per_file:
+                issues, _ = review_po_files(
+                    client, lang, config, apply=False
+                )
+            else:
+                issues, _ = review_site_wide(
+                    client, lang, config, apply=False
+                )
+            llm_issues += issues
+    except Exception as e:
+        friendly = describe_api_error(e)
+        print()
+        if friendly:
+            print(f"Error: {friendly}")
+            return 1
+        print(f"Unexpected error: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return 1
 
     print("\n" + "=" * 40)
     total = check_issues + llm_issues

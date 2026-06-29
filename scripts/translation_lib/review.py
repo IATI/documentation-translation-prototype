@@ -23,10 +23,13 @@ def review_po_files(
     *,
     apply: bool = True,
     dry_run: bool = False,
+    show_header: bool = True,
+    verbose: bool = True,
 ) -> tuple[int, int]:
     """Review translations per file. Returns (issues_found, revisions_applied)."""
     lang_name = LANGUAGE_NAMES.get(language, language)
-    print(f"\nReviewing {lang_name} translations for consistency...")
+    if show_header:
+        print(f"\nReviewing {lang_name} translations for consistency...")
 
     total_issues = 0
     total_applied = 0
@@ -59,7 +62,8 @@ def review_po_files(
         if not review_entries:
             continue
 
-        print(f"  {po_path.name}: {len(translated)} translations checked")
+        if verbose:
+            print(f"  {po_path.name}: {len(translated)} translations checked")
 
         prompt = build_review_prompt(
             review_entries, language, config, po_path.name
@@ -73,7 +77,8 @@ def review_po_files(
             continue
 
         if review_result.get("status") != "revised":
-            print(f"    All approved")
+            if verbose:
+                print(f"    All approved")
             continue
 
         revisions = review_result.get("revisions", [])
@@ -118,7 +123,7 @@ def review_po_files(
             po.save()
         total_applied += file_applied
 
-    if total_issues == 0:
+    if total_issues == 0 and not dry_run:
         print(f"  All translations approved")
 
     return total_issues, total_applied
@@ -131,13 +136,15 @@ def review_site_wide(
     *,
     apply: bool = True,
     dry_run: bool = False,
+    show_header: bool = True,
 ) -> tuple[int, int]:
     """Review all translations across files for cross-file consistency.
 
     Returns (issues_found, revisions_applied).
     """
     lang_name = LANGUAGE_NAMES.get(language, language)
-    print(f"\nSite-wide consistency review for {lang_name}...")
+    if show_header:
+        print(f"\nSite-wide consistency review for {lang_name}...")
 
     # Collect all translations across files
     all_entries: list[dict] = []

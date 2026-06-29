@@ -1,0 +1,7 @@
+# Development/test dependencies. Compile with:
+#   pip-compile requirements-dev.in
+# Install with:
+#   pip install -r requirements-dev.txt
+
+# Test runner
+pytest>=8.0.0

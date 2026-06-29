@@ -147,6 +147,11 @@ def with_retry(
                 except retryable_exceptions as e:
                     last_exception = e
 
+                    # Authentication failures won't fix themselves — fail fast
+                    # rather than burning retries and delaying the error.
+                    if getattr(e, "status_code", None) in (401, 403):
+                        raise
+
                     rate_limit_delay = _get_rate_limit_delay(e)
                     if rate_limit_delay is not None:
                         # Rate limited — be patient

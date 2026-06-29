@@ -29,16 +29,25 @@ pip install -r requirements.txt
 # Recompile dependencies after editing requirements.in
 pip-compile requirements.in
 
+# Run the test suite (no API key needed — deterministic checks, PO utils, JSON parsing)
+pip install -r requirements-dev.txt
+pytest
+
 # All scripts require MISTRAL_API_KEY env var (except --dry-run)
 # All scripts take a target docs repo path as first argument
 
-# Translate a docs repo (full 5-step pipeline: extract → update PO → translate → review → handle fuzzy)
+# Translate a docs repo (extract → update PO → translate → review → fuzzy → site-wide review → final validation)
 MISTRAL_API_KEY=xyz ./scripts/translate.py /path/to/docs-repo
 MISTRAL_API_KEY=xyz ./scripts/translate.py /path/to/docs-repo --language fr
-./scripts/translate.py /path/to/docs-repo --dry-run  # preview without API calls
+./scripts/translate.py /path/to/docs-repo --dry-run    # preview without API calls
+./scripts/translate.py /path/to/docs-repo --verbose    # show every translation (default: compact progress)
 
 # Skip specific pipeline steps
 ./scripts/translate.py /path/to/docs-repo --skip-extract --skip-review
+
+# Real runs mirror all output to translation-<timestamp>.log in the current directory
+# (override with --log PATH). Friendly messages are shown for missing/invalid API keys
+# and connectivity problems; full tracebacks go to the log, not the terminal.
 
 # Show translation status/stats (no API key needed)
 ./scripts/stats.py /path/to/docs-repo
@@ -64,7 +73,7 @@ MISTRAL_API_KEY=xyz ./scripts/review.py /path/to/docs-repo --site-wide
 
 ### Translation Pipeline (translate.py)
 
-Five-step pipeline: `sphinx-build -b gettext` → `sphinx-intl update` → LLM translation → per-file review (up to 2 convergence passes) → fuzzy entry validation.
+Pipeline: `sphinx-build -b gettext` → `sphinx-intl update` → LLM translation → per-file review (up to 2 convergence passes) → fuzzy entry validation → site-wide cross-file consistency review → final deterministic validation pass.
 
 Each translated entry goes through a quality assurance cascade:
 1. Auto-fix deterministic issues (e.g., URL language codes)
@@ -75,7 +84,7 @@ Each translated entry goes through a quality assurance cascade:
 ### Library Structure (scripts/translation_lib/)
 
 - **config.py** — Project path setup (`configure_project()`), `TranslationConfig` dataclass that merges global + local project configs, glossary loading from CSV/XLSX
-- **llm_utils.py** — Mistral API wrapper (`call_llm`) with throttling (~0.9 req/s) and `parse_json_response()` which handles markdown blocks, prose wrapping, and common JSON errors. Single model, always `temperature=0`
+- **llm_utils.py** — Mistral API wrapper (`call_llm`) with throttling (~3 req/s, half the 6 req/s limit) and `parse_json_response()` which handles markdown blocks, prose wrapping, and common JSON errors. Single model, always `temperature=0`
 - **prompts.py** — All LLM prompt builders (translation, review, site-wide review, fuzzy validation, correction). Shared `FORMATTING_RULES` constant
 - **checks.py** — Deterministic validators: URL language codes on IATI domains, glossary term preservation, length ratio (0.4x–2.5x), formatting markers (bold, code, RST links)
 - **quality.py** — `ensure_entry_quality()` orchestrates the auto-fix → check → LLM correction loop per entry

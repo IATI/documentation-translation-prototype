@@ -15,6 +15,7 @@ from .config import (
 )
 from .llm_utils import (
     call_llm,
+    describe_api_error,
     parse_json_response,
 )
 from .po_utils import (
@@ -37,6 +38,7 @@ __all__ = [
     "detect_languages",
     "scaffold_language",
     "call_llm",
+    "describe_api_error",
     "parse_json_response",
     "get_po_files",
     "is_locked",

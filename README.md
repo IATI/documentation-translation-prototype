@@ -30,7 +30,7 @@ All scripts are run with the format `MISTRAL_API_KEY=XXXXX ./script.py /path/to/
 
 glossary.csv should always match the latest version of the IATI Glossary
 translation_config.json contains few-shot examples and "translation notes" that are sent with every prompt to LLMs
-Using the format provided by YI, a ui_terms.xlsx translation spreadsheet will be included with the glossary if provided in the target docs repo.
+The glossary is loaded from glossary.csv. Using the format provided by YI, a ui_terms.xlsx translation spreadsheet will be included with the glossary if provided in the target docs repo.
 
 ### check_english.py
 
@@ -47,5 +47,14 @@ Gives an overview of the current translation status of the repo
 ### review.py
 
 Read-only tool that reviews existing translations and reports issues found by the LLM reviewer. Does not modify files — use translate.py to actually update translations.
+
+## Tests
+
+There is a small unit-test suite covering the deterministic checks (formatting/italics, list prefixes, URL language codes, glossary preservation, length ratios), the PO utilities (obsolete stripping, lock detection), and the LLM JSON parsing. These don't call the API and run in under a second.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
 

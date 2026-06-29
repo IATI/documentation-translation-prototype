@@ -2,6 +2,8 @@
 LLM prompt builders for translation and review.
 """
 
+import re
+
 from .config import LANGUAGE_NAMES, TranslationConfig
 
 
@@ -149,7 +151,9 @@ def _find_glossary_terms(
         if not translation:
             continue
         term, pos = _parse_glossary_key(key)
-        if term.lower() in source_lower:
+        # Word-boundary match (consistent with checks.check_glossary_terms) so
+        # we don't inject a glossary instruction for "result" inside "resulting".
+        if re.search(r'\b' + re.escape(term.lower()) + r'\b', source_lower):
             matches.append((term, pos, translation))
 
     # Remove terms that are substrings of longer matched terms,
