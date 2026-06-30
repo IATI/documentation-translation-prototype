@@ -422,7 +422,7 @@ def build_site_review_prompt(
 
 
 # -----------------------------------------------------------------------------
-# Fuzzy Validation Prompt
+# Correction Prompt
 # -----------------------------------------------------------------------------
 
 
@@ -463,87 +463,3 @@ def build_correction_prompt(
     )
 
     return system, user_msg
-
-
-def build_fuzzy_validation_prompt(
-    entries: list[dict],
-    target_language: str,
-    config: TranslationConfig,
-) -> str:
-    """Build a prompt for validating fuzzy translations.
-
-    Args:
-        entries: List of dicts with keys: index, file_name, source, translation, location
-        target_language: Language code
-        config: Translation config
-
-    Expected JSON response:
-        {"validations": [
-            {"index": 0, "decision": "approve|revise", "revised": "...|null", "reason": "..."}
-        ]}
-    """
-    lang_name = LANGUAGE_NAMES.get(target_language, target_language)
-    ui_terms, glossary = _get_language_terms(config, target_language)
-
-    prompt_parts = [
-        f"You are reviewing {lang_name} translations marked as 'fuzzy' (needing review).",
-        "",
-        "These were flagged because the source text CHANGED. The current translation",
-        "was carried over from an OLD, near-matching source by translation memory, so",
-        "it may describe the previous wording — or even a different item entirely.",
-        "Treat each translation as suspect until you have checked it against the",
-        "CURRENT source shown below.",
-        "",
-        "For each entry, decide: approve (translation already conveys the COMPLETE",
-        "current source meaning) or revise (anything is missing, wrong, or stale).",
-        "",
-        "CRITERIA — revise if ANY of these fail:",
-        "1. The translation conveys the COMPLETE current source meaning — no clause",
-        "   from the source is missing, and nothing extra has been added.",
-        "2. Cross-reference anchors match EXACTLY. If the source ends with",
-        "   '<faq_3>', the translation must end with '<faq_3>', not '<faq_1>'.",
-        "3. A leading item number matches EXACTLY (source '\\6.' -> translation '\\6.').",
-        "4. Formatting is preserved.",
-        "Stale anchors or numbers are a sure sign of carry-over from a renumbered",
-        "list — revise the whole entry to match the current source, do not approve it.",
-        "",
-        "RULES FOR ANY REVISIONS YOU MAKE:",
-        FORMATTING_RULES,
-        _format_terms_block(ui_terms, glossary),
-    ]
-
-    if config.notes:
-        prompt_parts.extend(["", "GUIDELINES:", config.notes.strip()])
-
-    prompt_parts.extend([
-        "",
-        "=" * 60,
-        "FUZZY TRANSLATIONS:",
-        "",
-    ])
-
-    for entry in entries:
-        prompt_parts.extend([
-            f"[{entry['index']}] {entry['file_name']} | {entry.get('location', '')}",
-            f"  SOURCE: {entry['source']}",
-            f"  TRANSLATION: {entry['translation']}",
-            "",
-        ])
-
-    prompt_parts.extend([
-        "=" * 60,
-        "",
-        "Respond with JSON:",
-        '{"validations": [',
-        '  {"index": 0, "decision": "approve", "revised": null, "reason": "accurate translation"},',
-        '  {"index": 1, "decision": "revise", "revised": "corrected text", "reason": "missing clause"}',
-        "]}",
-        "",
-        "IMPORTANT:",
-        "- Minor stylistic differences are OK — do not churn pure wording preferences",
-        "- But DO revise for any missing meaning, mismatched anchor, or stale number",
-        "- A 'revise' MUST supply the COMPLETE corrected translation in 'revised'",
-        "- Return ONLY valid JSON",
-    ])
-
-    return "\n".join(prompt_parts)

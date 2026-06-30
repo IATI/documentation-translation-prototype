@@ -20,6 +20,7 @@ from translation_lib import (
     load_po_file,
 )
 from translation_lib import config as tl_config
+from translation_lib.po_utils import get_needs_review
 
 
 def show_stats(languages: list[str], verbose: bool = False) -> None:
@@ -41,6 +42,7 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
         total_translated = 0
         total_untranslated = 0
         total_fuzzy = 0
+        total_needs_review = 0
         total_locked = 0
         file_stats = []
 
@@ -49,12 +51,18 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
             translated = len(po.translated_entries())
             untranslated = len(po.untranslated_entries())
             fuzzy = len(po.fuzzy_entries())
+            # Fuzzy entries the tool itself flagged because it could not bring
+            # them up to standard (vs. incoming carry-over still to be processed).
+            needs_review = sum(
+                1 for e in po.fuzzy_entries() if e.msgid and get_needs_review(e)
+            )
             locked = sum(1 for e in po if e.msgid and is_locked(e))
             total = translated + untranslated
 
             total_translated += translated
             total_untranslated += untranslated
             total_fuzzy += fuzzy
+            total_needs_review += needs_review
             total_locked += locked
 
             if verbose or untranslated > 0 or fuzzy > 0 or locked > 0:
@@ -74,6 +82,9 @@ def show_stats(languages: list[str], verbose: bool = False) -> None:
             print(f"  Overall: {total_translated}/{grand_total} ({percentage:.1f}%) translated")
             if total_fuzzy > 0:
                 print(f"  Fuzzy (needs review): {total_fuzzy}")
+                if total_needs_review > 0:
+                    print(f"    of which {total_needs_review} flagged by the tool "
+                          f"as unable to reach the standard")
             if total_locked > 0:
                 print(f"  Locked (manual edits): {total_locked}")
             if total_untranslated > 0:

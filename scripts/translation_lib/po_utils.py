@@ -69,17 +69,73 @@ def get_review_fingerprint(entry: polib.POEntry) -> str | None:
 def set_review_fingerprint(entry: polib.POEntry, fingerprint: str) -> bool:
     """Store/update the review fingerprint in the entry's translator comment.
 
-    Other translator-comment lines (e.g. LOCKED) are preserved. Returns True if
-    the comment actually changed, False if the fingerprint was already current
-    (so callers can avoid rewriting unchanged files).
+    Other translator-comment lines (e.g. LOCKED) are preserved, but any
+    NEEDS-REVIEW marker is dropped — passing review and needing review are
+    mutually exclusive. Returns True if the comment actually changed, False if
+    it was already current (so callers can avoid rewriting unchanged files).
     """
     kept = [
         line for line in (entry.tcomment or "").splitlines()
         if not line.strip().startswith(REVIEW_FINGERPRINT_PREFIX)
+        and not line.strip().startswith(NEEDS_REVIEW_PREFIX)
     ]
     kept.append(f"{REVIEW_FINGERPRINT_PREFIX} {fingerprint}")
     new_tcomment = "\n".join(kept)
     if new_tcomment == (entry.tcomment or ""):
         return False
     entry.tcomment = new_tcomment
+    return True
+
+
+# Translator-comment marker recording that the tool tried to bring an entry up
+# to standard but could not — it is left fuzzy (so it renders as the English
+# source, never as a known-bad translation) and flagged here for a human. Stored
+# like LOCKED/REVIEWED so it survives ``sphinx-intl update``. The value is
+# "<fingerprint> <reason>": the fingerprint (see fingerprint.py) lets a re-run
+# recognise an entry that will fail identically and skip re-attempting it.
+NEEDS_REVIEW_PREFIX = "NEEDS-REVIEW:"
+
+
+def get_needs_review(entry: polib.POEntry) -> tuple[str, str] | None:
+    """Return (fingerprint, reason) from an entry's NEEDS-REVIEW marker, or None.
+
+    The fingerprint is "" if the marker stored no fingerprint.
+    """
+    if not entry.tcomment:
+        return None
+    for line in entry.tcomment.splitlines():
+        line = line.strip()
+        if line.startswith(NEEDS_REVIEW_PREFIX):
+            rest = line[len(NEEDS_REVIEW_PREFIX):].strip()
+            fingerprint, _, reason = rest.partition(" ")
+            return fingerprint.strip(), reason.strip()
+    return None
+
+
+def set_needs_review(entry: polib.POEntry, fingerprint: str, reason: str) -> None:
+    """Mark an entry as needing manual review, recording why and a fingerprint.
+
+    Any REVIEWED marker is dropped (the two are mutually exclusive); other
+    comment lines (e.g. LOCKED) are preserved.
+    """
+    kept = [
+        line for line in (entry.tcomment or "").splitlines()
+        if not line.strip().startswith(NEEDS_REVIEW_PREFIX)
+        and not line.strip().startswith(REVIEW_FINGERPRINT_PREFIX)
+    ]
+    kept.append(f"{NEEDS_REVIEW_PREFIX} {fingerprint} {reason}".rstrip())
+    entry.tcomment = "\n".join(kept)
+
+
+def clear_needs_review(entry: polib.POEntry) -> bool:
+    """Remove any NEEDS-REVIEW marker. Returns True if one was present."""
+    if not entry.tcomment:
+        return False
+    kept = [
+        line for line in entry.tcomment.splitlines()
+        if not line.strip().startswith(NEEDS_REVIEW_PREFIX)
+    ]
+    if len(kept) == len(entry.tcomment.splitlines()):
+        return False
+    entry.tcomment = "\n".join(kept)
     return True

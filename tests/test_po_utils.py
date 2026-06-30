@@ -6,8 +6,11 @@ strip_obsolete is the regression for "bugfix: remove all obsolete translations".
 import polib
 
 from translation_lib.po_utils import (
+    clear_needs_review,
+    get_needs_review,
     get_review_fingerprint,
     is_locked,
+    set_needs_review,
     set_review_fingerprint,
     strip_obsolete,
 )
@@ -87,3 +90,41 @@ def test_review_fingerprint_coexists_with_locked():
     # Both markers survive: LOCKED is still detected and the fingerprint reads back.
     assert is_locked(entry) is True
     assert get_review_fingerprint(entry) == "abc123"
+
+
+# --- needs-review markers ----------------------------------------------------
+
+
+def test_needs_review_round_trip():
+    entry = polib.POEntry(msgid="x", msgstr="y")
+    assert get_needs_review(entry) is None
+    set_needs_review(entry, "fp123", "length ratio too low")
+    assert get_needs_review(entry) == ("fp123", "length ratio too low")
+
+
+def test_needs_review_and_reviewed_are_mutually_exclusive():
+    entry = polib.POEntry(msgid="x", msgstr="y")
+    set_needs_review(entry, "fp123", "stale anchor")
+    # Passing review later must drop the needs-review marker.
+    set_review_fingerprint(entry, "abc123")
+    assert get_needs_review(entry) is None
+    assert get_review_fingerprint(entry) == "abc123"
+    # And going back to needs-review must drop the reviewed fingerprint.
+    set_needs_review(entry, "fp456", "regressed")
+    assert get_review_fingerprint(entry) is None
+    assert get_needs_review(entry) == ("fp456", "regressed")
+
+
+def test_needs_review_coexists_with_locked():
+    entry = polib.POEntry(msgid="x", msgstr="y", tcomment="LOCKED: keep")
+    set_needs_review(entry, "fp123", "reason")
+    assert is_locked(entry) is True
+    assert get_needs_review(entry) == ("fp123", "reason")
+
+
+def test_clear_needs_review():
+    entry = polib.POEntry(msgid="x", msgstr="y")
+    assert clear_needs_review(entry) is False
+    set_needs_review(entry, "fp123", "reason")
+    assert clear_needs_review(entry) is True
+    assert get_needs_review(entry) is None

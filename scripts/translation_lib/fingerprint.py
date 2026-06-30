@@ -16,7 +16,7 @@ import json
 import polib
 
 from .config import TranslationConfig
-from .po_utils import get_review_fingerprint
+from .po_utils import get_needs_review, get_review_fingerprint
 from .prompts import FORMATTING_RULES
 
 
@@ -67,5 +67,24 @@ def is_review_current(
     """
     stored = get_review_fingerprint(entry)
     return stored is not None and stored == entry_fingerprint(
+        entry, language, std_version
+    )
+
+
+def needs_review_current(
+    entry: polib.POEntry, language: str, std_version: str
+) -> bool:
+    """True if the entry was already given up on under the current standard.
+
+    Such an entry has an unchanged source, translation, and standard since the
+    tool last failed to bring it up to standard — re-attempting it would fail
+    identically (translation is deterministic), so a re-run can skip it and
+    leave it flagged for a human instead of burning tokens.
+    """
+    nr = get_needs_review(entry)
+    if nr is None:
+        return False
+    stored_fp, _reason = nr
+    return bool(stored_fp) and stored_fp == entry_fingerprint(
         entry, language, std_version
     )

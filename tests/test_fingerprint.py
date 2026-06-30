@@ -11,9 +11,10 @@ from translation_lib.config import TranslationConfig
 from translation_lib.fingerprint import (
     entry_fingerprint,
     is_review_current,
+    needs_review_current,
     standard_version,
 )
-from translation_lib.po_utils import set_review_fingerprint
+from translation_lib.po_utils import set_needs_review, set_review_fingerprint
 
 
 def _config(glossary=None, notes=""):
@@ -74,3 +75,42 @@ def test_is_review_current_false_after_glossary_change():
 
     after = _config(glossary={"activity": {"fr": "action"}})
     assert is_review_current(entry, "fr", standard_version(after, "fr")) is False
+
+
+# --- needs-review convergence ------------------------------------------------
+
+
+def test_needs_review_current_true_when_unchanged():
+    """A given-up entry whose source/translation/standard are unchanged is
+    recognised, so a re-run can skip re-attempting it."""
+    cfg = _config()
+    std = standard_version(cfg, "fr")
+    entry = polib.POEntry(msgid="Activity", msgstr="bad")
+    set_needs_review(entry, entry_fingerprint(entry, "fr", std), "stale anchor")
+    assert needs_review_current(entry, "fr", std) is True
+
+
+def test_needs_review_current_false_when_translation_changed():
+    """If the entry's translation changed (e.g. a human edited it), it must be
+    re-attempted rather than skipped."""
+    cfg = _config()
+    std = standard_version(cfg, "fr")
+    entry = polib.POEntry(msgid="Activity", msgstr="bad")
+    set_needs_review(entry, entry_fingerprint(entry, "fr", std), "stale anchor")
+    entry.msgstr = "edited by a human"
+    assert needs_review_current(entry, "fr", std) is False
+
+
+def test_needs_review_current_false_after_standard_change():
+    cfg_before = _config(glossary={"activity": {"fr": "activité"}})
+    std_before = standard_version(cfg_before, "fr")
+    entry = polib.POEntry(msgid="Activity", msgstr="bad")
+    set_needs_review(entry, entry_fingerprint(entry, "fr", std_before), "reason")
+
+    cfg_after = _config(glossary={"activity": {"fr": "action"}})
+    assert needs_review_current(entry, "fr", standard_version(cfg_after, "fr")) is False
+
+
+def test_needs_review_current_false_when_unmarked():
+    entry = polib.POEntry(msgid="Activity", msgstr="ok")
+    assert needs_review_current(entry, "fr", standard_version(_config(), "fr")) is False
