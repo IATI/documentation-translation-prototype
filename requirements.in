@@ -15,3 +15,15 @@ simplemma>=1.0.0
 
 # Sphinx i18n tooling — syncs .pot -> .po (sphinx pulled in transitively)
 sphinx-intl>=2.0.0
+
+# IATI docs-build toolchain — needed to run `sphinx-build -b gettext` against
+# target docs repos (their conf.py loads this theme + these extensions).
+# Copied from the estate docs repos (e.g. iati-d-portal-docs/requirements.in);
+# kept in sync by hand until this tool consumes the estate build env directly.
+sphinx
+sphinx-togglebutton
+sphinxcontrib-opendataservices
+sphinxcontrib-redoc @ git+https://github.com/OpenDataServices/sphinxcontrib-redoc.git@main
+sphinxcontrib-video
+sphinxcontrib-youtube
+iati-sphinx-theme

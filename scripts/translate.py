@@ -49,6 +49,7 @@ from translation_lib import (
 )
 from translation_lib import config as tl_config
 from translation_lib.checks import run_all_checks
+from translation_lib.config import SITE_REVIEW_CHUNK_SIZE
 from translation_lib.fingerprint import entry_fingerprint, standard_version
 from translation_lib.po_utils import set_review_fingerprint
 from translation_lib.formatting import fmt_duration, format_diff, location, truncate
@@ -75,6 +76,7 @@ def extract_strings() -> bool:
     result = subprocess.run(
         ["sphinx-build", "-b", "gettext", ".", "_build/locale"],
         cwd=str(tl_config.DOCS_DIR),
+        env=tl_config.sphinx_env(),
         capture_output=True,
         text=True,
     )
@@ -102,6 +104,7 @@ def update_po_files(languages: list[str]) -> dict[str, int]:
         result = subprocess.run(
             ["sphinx-intl", "update", "-p", "_build/locale", "-l", lang],
             cwd=str(tl_config.DOCS_DIR),
+            env=tl_config.sphinx_env(),
             capture_output=True,
             text=True,
         )
@@ -236,13 +239,48 @@ def translate_language(
 # -----------------------------------------------------------------------------
 
 
+def _retranslate_entry(
+    client: Mistral | None,
+    entry: polib.POEntry,
+    language: str,
+    config: TranslationConfig,
+) -> str | None:
+    """Translate an entry from scratch from its current source.
+
+    Used as the fallback for fuzzy entries the reviewer could not resolve, so a
+    stale carry-over translation can never silently ship. Returns the new
+    translation, or None if the LLM gave nothing usable.
+    """
+    system_msg, user_msg = build_translation_prompt(entry.msgid, language, config)
+    raw = call_llm(client, user_msg, system=system_msg, json_mode=True)
+    try:
+        data = parse_json_response(raw)
+    except json.JSONDecodeError:
+        data = None
+    translation = data.get("translation") if isinstance(data, dict) else None
+    if not isinstance(translation, str) or not translation.strip():
+        return None
+    return translation
+
+
 def handle_fuzzy_language(
     client: Mistral | None,
     language: str,
     config: TranslationConfig,
     dry_run: bool = False,
-) -> tuple[int, int]:
-    """Validate fuzzy entries. Returns (approved_count, revised_count)."""
+) -> tuple[int, int, list[tuple[str, str, str]]]:
+    """Validate fuzzy entries and bring them up to standard.
+
+    Every fuzzy entry is resolved one way or another: the reviewer approves or
+    revises it, or — if the reviewer returned nothing usable (e.g. an
+    unparseable chunk) — it is re-translated from its current source. Nothing
+    is left silently fuzzy.
+
+    Returns (approved_count, revised_count, unresolved) where *unresolved* is a
+    list of (file_name, msgid, description) for entries that still need a human:
+    either they could not be resolved at all, or a deterministic check still
+    fails on the resolved text.
+    """
     # Collect all fuzzy entries across files
     fuzzy_entries: list[dict] = []
     fuzzy_map: dict[int, tuple[polib.POFile, polib.POEntry]] = {}
@@ -267,76 +305,99 @@ def handle_fuzzy_language(
 
     if not fuzzy_entries:
         print("  No fuzzy entries to review")
-        return 0, 0
+        return 0, 0, []
 
     print(f"  {len(fuzzy_entries)} fuzzy entries to review")
 
     if dry_run:
         for fe in fuzzy_entries:
             print(f"    FUZZY [{fe['index']}] {fe['file_name']}: \"{truncate(fe['source'])}\"")
-        return 0, 0
+        return 0, 0, []
 
-    # Send to LLM for validation
-    prompt = build_fuzzy_validation_prompt(fuzzy_entries, language, config)
-    result = call_llm(client, prompt, json_mode=True)
-
-    try:
-        parsed = parse_json_response(result)
-    except json.JSONDecodeError as e:
-        print(f"    Warning: Could not parse fuzzy validation response: {e}")
-        return 0, 0
-
-    # Handle both {"validations": [...]} and bare [...] formats
-    if isinstance(parsed, list):
-        validations = parsed
-    else:
-        validations = parsed.get("validations", [])
+    # Validate in chunks. A single unparseable response then loses only its own
+    # chunk rather than abandoning every fuzzy entry across the whole language.
+    decisions: dict[int, dict] = {}
+    chunks = [
+        fuzzy_entries[i : i + SITE_REVIEW_CHUNK_SIZE]
+        for i in range(0, len(fuzzy_entries), SITE_REVIEW_CHUNK_SIZE)
+    ]
+    for chunk_num, chunk in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            print(f"  Reviewing chunk {chunk_num}/{len(chunks)} ({len(chunk)} entries)...")
+        prompt = build_fuzzy_validation_prompt(chunk, language, config)
+        result = call_llm(client, prompt, json_mode=True)
+        try:
+            parsed = parse_json_response(result)
+        except json.JSONDecodeError as e:
+            print(f"    Warning: could not parse fuzzy validation for chunk "
+                  f"{chunk_num} — its entries will be re-translated instead: {e}")
+            continue
+        # Handle both {"validations": [...]} and bare [...] formats
+        validations = parsed if isinstance(parsed, list) else parsed.get("validations", [])
+        for validation in validations:
+            idx = validation.get("index")
+            if idx in fuzzy_map:
+                decisions[idx] = validation
 
     approved = 0
     revised = 0
+    unresolved: list[tuple[str, str, str]] = []
     files_to_save: dict[int, polib.POFile] = {}
 
-    for validation in validations:
-        idx = validation.get("index")
+    # Resolve every fuzzy entry. Entries the reviewer didn't usefully decide on
+    # (missing from the response, or "revise" with no text) fall back to a fresh
+    # translation so they can't ship as stale carry-over.
+    for idx, (po_file, entry) in fuzzy_map.items():
+        file_name = fuzzy_entries[idx]["file_name"]
+        validation = decisions.get(idx, {})
         decision = validation.get("decision", "")
         revised_text = validation.get("revised")
-        reason = validation.get("reason", "")
-
-        if idx is None or idx not in fuzzy_map:
-            continue
-
-        po_file, entry = fuzzy_map[idx]
-        file_name = fuzzy_entries[idx]["file_name"]
 
         if decision == "approve":
             entry.flags = [f for f in entry.flags if f != "fuzzy"]
-            files_to_save[id(po_file)] = po_file
             print(f"    APPROVED [{idx}] {file_name}: \"{truncate(entry.msgid)}\"")
             approved += 1
-        elif decision == "revise" and revised_text:
-            if revised_text == entry.msgstr:
-                continue  # No actual change
-            diff = format_diff(entry.msgstr, revised_text)
-            entry.msgstr = revised_text
+        elif decision == "revise" and isinstance(revised_text, str) and revised_text.strip():
+            if revised_text != entry.msgstr:
+                print(f"    REVISED  [{idx}] {file_name}: "
+                      f"{format_diff(entry.msgstr, revised_text)}")
+                entry.msgstr = revised_text
             entry.flags = [f for f in entry.flags if f != "fuzzy"]
-            files_to_save[id(po_file)] = po_file
-            print(f"    REVISED  [{idx}] {file_name}: {diff}")
             revised += 1
         else:
-            continue
+            # No usable decision — re-translate from the current source.
+            new_translation = _retranslate_entry(client, entry, language, config)
+            if new_translation is None:
+                print(f"    UNRESOLVED [{idx}] {file_name}: \"{truncate(entry.msgid)}\" — "
+                      f"left fuzzy, needs manual review")
+                unresolved.append((
+                    file_name, entry.msgid,
+                    "could not validate or re-translate — left fuzzy",
+                ))
+                continue
+            print(f"    RETRANSLATED [{idx}] {file_name}: "
+                  f"{format_diff(entry.msgstr, new_translation)}")
+            entry.msgstr = new_translation
+            entry.flags = [f for f in entry.flags if f != "fuzzy"]
+            revised += 1
 
-        # Quality check the approved/revised translation
+        files_to_save[id(po_file)] = po_file
+
+        # Quality check the resolved translation. The deterministic checks
+        # (anchors, numbering, length, formatting, glossary) are the safety net
+        # that catches carry-over the reviewer leniently approved.
         qr = ensure_entry_quality(client, entry, language, config)
         for fix in qr.fixes_applied:
             print(f"      FIX: {fix}")
         for issue in qr.remaining_issues:
             print(f"      WARNING: {issue['description']}")
+            unresolved.append((file_name, entry.msgid, issue["description"]))
 
     for po_file in files_to_save.values():
         strip_obsolete(po_file)
         po_file.save()
 
-    return approved, revised
+    return approved, revised, unresolved
 
 
 # -----------------------------------------------------------------------------
@@ -431,7 +492,7 @@ def _process_language(
     # Phase: fuzzy
     step += 1
     _phase_banner(lang_name, step, total_phases, "Checking fuzzy entries")
-    approved, fuzzy_revised = handle_fuzzy_language(
+    approved, fuzzy_revised, fuzzy_unresolved = handle_fuzzy_language(
         client, lang, config, dry_run=args.dry_run
     )
 
@@ -521,6 +582,25 @@ def _process_language(
                     remaining_issue_details.append((
                         po_path.name, entry.msgid, issue["description"],
                     ))
+
+    # Surface fuzzy handling's leftovers (re-translation failures and resolved
+    # entries that still fail a check) so they feed into the run verdict.
+    remaining_issue_details.extend(fuzzy_unresolved)
+
+    # Belt and suspenders: any entry STILL flagged fuzzy after the pipeline must
+    # be reported, never shipped silently. This is the guarantee that a failed
+    # fuzzy pass can no longer pass off as "all checks passed". Skip entries
+    # already captured above to avoid double-reporting.
+    if not args.dry_run:
+        already = {(f, s) for f, s, _ in remaining_issue_details}
+        for po_path in get_po_files(lang):
+            po = load_po_file(po_path)
+            for entry in po.fuzzy_entries():
+                if not entry.msgid or (po_path.name, entry.msgid) in already:
+                    continue
+                reason = ("locked entry is fuzzy — resolve manually"
+                          if is_locked(entry) else "still marked fuzzy — needs manual review")
+                remaining_issue_details.append((po_path.name, entry.msgid, reason))
 
     # Coverage stats
     total_translated = total_entries = total_locked = 0

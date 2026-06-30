@@ -374,6 +374,80 @@ def check_formatting_preserved(source: str, translation: str) -> list[dict]:
     return issues
 
 
+# RST cross-reference roles (e.g. :ref:`Visible text <target>`) carry a
+# <target> anchor that points at a labelled location elsewhere in the docs.
+# The anchor is NOT translatable text — it must be copied verbatim. Translation
+# memory carries this over from near-matches, so when an FAQ list is renumbered
+# the visible text changes but a stale anchor (and number) can be left behind.
+_REF_ROLE_RE = re.compile(r':[a-zA-Z][\w+-]*:`([^`]*)`')
+
+
+def _ref_targets(text: str) -> list[str]:
+    """Return the sorted list of cross-reference anchors used in *text*.
+
+    Extracts the ``<target>`` from each ``:role:`text <target>``` construct.
+    Sorted so the comparison is order-insensitive (a multiset compare): the
+    same set of anchors counts as preserved even if clauses are reordered.
+    """
+    targets: list[str] = []
+    for content in _REF_ROLE_RE.findall(text):
+        m = re.search(r'<([^>]+)>', content)
+        if m:
+            targets.append(m.group(1).strip())
+    return sorted(targets)
+
+
+def check_ref_targets(source: str, translation: str) -> list[dict]:
+    """Check that RST cross-reference anchors are preserved verbatim.
+
+    A mismatch means the translation points at a different doc location than
+    the source — the classic symptom of translation-memory carry-over after a
+    list/anchor was renumbered.
+    """
+    src = _ref_targets(source)
+    trans = _ref_targets(translation)
+    if src == trans:
+        return []
+    return [{
+        "type": "ref_target",
+        "description": (
+            f"Cross-reference anchor mismatch: source points to "
+            f"{src or '(none)'} but translation points to {trans or '(none)'}"
+        ),
+    }]
+
+
+def _escaped_number_prefix(text: str) -> str | None:
+    r"""Return the leading escaped item number (e.g. '6' from '\6. ...').
+
+    Sphinx sources escape a literal leading number as ``\6.`` to stop
+    auto-numbering. The number identifies the item and must match the source;
+    a stale number is another carry-over symptom after renumbering.
+    """
+    m = re.match(r'^\\(\d+)\.', text)
+    return m.group(1) if m else None
+
+
+def check_numbered_prefix(source: str, translation: str) -> list[dict]:
+    r"""Check that a leading escaped item number (``\6.``) matches the source."""
+    src_num = _escaped_number_prefix(source)
+    if src_num is None:
+        return []
+
+    trans_num = _escaped_number_prefix(translation)
+    if trans_num == src_num:
+        return []
+
+    trans_display = f"\\{trans_num}." if trans_num else "(none)"
+    return [{
+        "type": "numbered_prefix",
+        "description": (
+            f"Item number mismatch: source starts with '\\{src_num}.' "
+            f"but translation starts with {trans_display}"
+        ),
+    }]
+
+
 def run_all_checks(
     entry: polib.POEntry,
     language: str,
@@ -394,6 +468,8 @@ def run_all_checks(
     issues.extend(check_length_ratio(source, translation))
     issues.extend(check_formatting_preserved(source, translation))
     issues.extend(check_list_prefix(source, translation))
+    issues.extend(check_ref_targets(source, translation))
+    issues.extend(check_numbered_prefix(source, translation))
     issues.extend(check_glossary_terms(source, translation, language, config))
 
     return issues

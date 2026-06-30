@@ -149,6 +149,7 @@ def extract_strings() -> bool:
     result = subprocess.run(
         ["sphinx-build", "-b", "gettext", ".", "_build/locale"],
         cwd=str(tl_config.DOCS_DIR),
+        env=tl_config.sphinx_env(),
         capture_output=True,
         text=True,
     )

@@ -18,6 +18,8 @@ from translation_lib.checks import (
     check_glossary_terms,
     check_length_ratio,
     check_list_prefix,
+    check_numbered_prefix,
+    check_ref_targets,
     check_url_language_codes,
     fix_list_prefix,
     fix_url_language_codes,
@@ -213,8 +215,65 @@ def test_validate_revision_clean_revision_ok():
 
 
 # -----------------------------------------------------------------------------
+# Cross-reference anchors and item numbers — regression for the FAQ-renumbering
+# carry-over (a fuzzy entry whose <faq_N> anchor / \N. number went stale).
+# -----------------------------------------------------------------------------
+
+
+def test_check_ref_targets_flags_stale_anchor():
+    # The classic carry-over: faq_3's question got the faq_1 answer + anchor.
+    src = ":ref:`Why can't I see my published data? <faq_3>`"
+    trans = ":ref:`¿Qué datos se incluyen? <faq_1>`"
+    issues = check_ref_targets(src, trans)
+    assert len(issues) == 1
+    assert issues[0]["type"] == "ref_target"
+
+
+def test_check_ref_targets_ok_when_anchor_matches():
+    src = ":ref:`What data is included? <faq_1>`"
+    trans = ":ref:`¿Qué datos se incluyen? <faq_1>`"
+    assert check_ref_targets(src, trans) == []
+
+
+def test_check_ref_targets_ignores_external_rst_links():
+    # `text <url>`_ external links have no :role: prefix and are checked
+    # elsewhere — they must not be treated as cross-reference anchors.
+    src = "See `the docs <https://x.org/en/>`_"
+    trans = "Voir `la doc <https://x.org/fr/>`_"
+    assert check_ref_targets(src, trans) == []
+
+
+def test_check_numbered_prefix_flags_stale_number():
+    issues = check_numbered_prefix(
+        "\\6. Why are there zeros and dashes?",
+        "\\5. ¿Por qué hay ceros y guiones?",
+    )
+    assert len(issues) == 1
+    assert issues[0]["type"] == "numbered_prefix"
+
+
+def test_check_numbered_prefix_ok_when_number_matches():
+    assert check_numbered_prefix(
+        "\\6. Why are there zeros and dashes?",
+        "\\6. ¿Por qué hay ceros y guiones?",
+    ) == []
+
+
+def test_check_numbered_prefix_noop_without_escaped_number():
+    assert check_numbered_prefix("Plain heading", "Titre simple") == []
+
+
+# -----------------------------------------------------------------------------
 # run_all_checks aggregation
 # -----------------------------------------------------------------------------
+
+
+def test_run_all_checks_flags_stale_anchor():
+    entry = polib.POEntry(
+        msgid=":ref:`Why can't I see my published data? <faq_3>`",
+        msgstr=":ref:`¿Qué datos se incluyen? <faq_1>`",
+    )
+    assert any(i["type"] == "ref_target" for i in run_all_checks(entry, "es"))
 
 
 def test_run_all_checks_passes_clean_entry():

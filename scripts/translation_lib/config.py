@@ -4,6 +4,7 @@ Configuration constants and TranslationConfig class.
 
 import csv
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from functools import wraps
@@ -44,6 +45,22 @@ def configure_project(project_path: str | Path) -> None:
     UI_TERMS_XLSX_PATH = PROJECT_ROOT / "scripts" / "ui_terms.xlsx"
     if not DOCS_DIR.exists():
         raise FileNotFoundError(f"docs/ directory not found in {PROJECT_ROOT}")
+
+
+def sphinx_env() -> dict[str, str]:
+    """Environment for sphinx-build subprocesses.
+
+    IATI docs repos share a conf.py that imports sibling modules (e.g.
+    project_info.py) by name. Modern Sphinx no longer adds the conf.py
+    directory to sys.path automatically, so we put DOCS_DIR on PYTHONPATH
+    to keep those imports working.
+    """
+    env = os.environ.copy()
+    if DOCS_DIR is not None:
+        existing = env.get("PYTHONPATH", "")
+        parts = [str(DOCS_DIR)] + ([existing] if existing else [])
+        env["PYTHONPATH"] = os.pathsep.join(parts)
+    return env
 
 
 # -----------------------------------------------------------------------------
