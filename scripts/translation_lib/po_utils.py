@@ -2,6 +2,7 @@
 PO file utilities using polib directly.
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import polib
@@ -35,6 +36,22 @@ def strip_obsolete(po: polib.POFile) -> int:
         for entry in po.obsolete_entries():
             po.remove(entry)
     return count
+
+
+def save_po_files(pos: Iterable[polib.POFile]) -> None:
+    """Strip obsolete entries from and save each distinct PO file exactly once.
+
+    De-duplicates by object identity, so a caller can collect the same POFile
+    repeatedly (e.g. once per modified entry) and still write it a single time.
+    This is the shared idiom for the pipeline's "fan-in and save" phases.
+    """
+    seen: set[int] = set()
+    for po in pos:
+        if id(po) in seen:
+            continue
+        seen.add(id(po))
+        strip_obsolete(po)
+        po.save()
 
 
 def is_locked(entry: polib.POEntry) -> bool:

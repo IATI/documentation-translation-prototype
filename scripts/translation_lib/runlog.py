@@ -47,8 +47,13 @@ class RunLog:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._file = open(self.path, "w", encoding="utf-8")
+        # Tee both streams: stderr carries subprocess output and stray
+        # tracebacks that the user would otherwise not have in the log they
+        # send to the developer.
         self._orig_stdout = sys.stdout
+        self._orig_stderr = sys.stderr
         sys.stdout = _Tee(self._orig_stdout, self._file)
+        sys.stderr = _Tee(self._orig_stderr, self._file)
 
     def log_only(self, text: str) -> None:
         """Write text to the log file only, not the terminal."""
@@ -57,4 +62,5 @@ class RunLog:
 
     def close(self) -> None:
         sys.stdout = self._orig_stdout
+        sys.stderr = self._orig_stderr
         self._file.close()

@@ -230,7 +230,11 @@ Examples:
 
     args = parser.parse_args()
 
-    configure_project(args.project_path)
+    try:
+        configure_project(args.project_path)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        return 1
 
     print("English Source Text Check")
     print("=" * 60)

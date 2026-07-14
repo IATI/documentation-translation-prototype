@@ -18,8 +18,10 @@ FORMATTING_RULES = """
 - Do NOT add content that is not in the English source (e.g. captions, labels, figure numbers, explanatory notes).
 - Do NOT remove formatting that IS in the English source.
 - Copy URLs exactly — never retype or modify them. The ONE exception: change language codes in URL paths (e.g. /en/ -> /fr/).
-- Do NOT translate text inside backticks (code/commands).
+- Do NOT translate text inside double backticks (``code``) or inside :role:`...` cross-reference targets — these are literal code/commands or anchors.
+- RST hyperlinks use a SINGLE backtick, e.g. `visible text <url>`_ — this is NOT code. Translate the visible text; copy the <url> part exactly unchanged.
 - Preserve numbered/lettered list prefixes exactly (e.g. "1)", "2.", "(a)") — do not drop or renumber them.
+- A leading escaped item number like "\6." must be copied exactly as in the source — never translate, drop, or renumber it.
 - Use glossary and UI terms exactly as specified.
 """.strip()
 
@@ -453,7 +455,7 @@ def build_correction_prompt(
         '\n\nYou MUST respond with JSON: {"translation": "your corrected translation here"}'
     )
 
-    issue_lines = "\n".join(f"- {issue['description']}" for issue in issues)
+    issue_lines = "\n".join(f"- {_format_issue_for_correction(issue)}" for issue in issues)
     user_msg = (
         f"SOURCE TEXT:\n{source_text}\n\n"
         f"CURRENT TRANSLATION:\n{current_translation}\n\n"
@@ -463,3 +465,132 @@ def build_correction_prompt(
     )
 
     return system, user_msg
+
+
+def _format_issue_for_correction(issue: dict) -> str:
+    """Format a single issue for the correction prompt's problem list.
+
+    Glossary misses get a stronger, more explicit instruction than the bare
+    description — naming a synonym/paraphrase is the most common reason a
+    first correction attempt still doesn't work the required term in.
+    """
+    if issue.get("type") == "glossary_term" and issue.get("expected"):
+        return (
+            f"{issue['description']}. The word or phrase '{issue['expected']}' "
+            "(adjusted only for grammatical agreement — gender, number, verb "
+            "conjugation) MUST appear literally in your corrected translation. "
+            "Do not use a synonym or paraphrase for this concept instead."
+        )
+    return issue["description"]
+
+
+def build_glossary_focus_prompt(
+    source_text: str,
+    current_translation: str,
+    issues: list[dict],
+    target_language: str,
+    config: TranslationConfig,
+) -> tuple[str, str]:
+    """Build a narrowly-scoped correction prompt for glossary-only failures.
+
+    Used as a last-resort retry when standard correction attempts leave a
+    glossary term unresolved. Strips away every other translation rule so the
+    model's whole attention is on working the required term(s) in, with a
+    worked example of adapting a term for grammatical agreement rather than
+    dropping it in verbatim.
+
+    Args:
+        issues: glossary_term issues only (each with 'name' and 'expected').
+
+    Returns (system_message, user_message) tuple.
+    The expected response is: {"translation": "..."}
+    """
+    lang_name = LANGUAGE_NAMES.get(target_language, target_language)
+
+    term_lines = [
+        f'  "{issue["name"]}" -> "{issue["expected"]}"'
+        for issue in issues
+        if issue.get("name") and issue.get("expected")
+    ]
+
+    system = (
+        f"You are correcting a {lang_name} translation that is missing required "
+        "glossary terms. Your ONLY job is to work each required term into the "
+        "translation, adjusted for grammatical agreement (gender, number, verb "
+        "tense/conjugation) as needed. Do not use a synonym or paraphrase "
+        "instead of the required term — the root word must be present. "
+        "Change nothing else: same meaning, same formatting, same length.\n\n"
+        'Example: required term "download" -> "descargar". If the sentence '
+        'needs a noun, adapt the ending (e.g. "la descarga"); if it needs a '
+        'conjugated verb, conjugate it (e.g. "puede descargar", "descargue") '
+        "— but always keep the descargar root, never substitute a different verb.\n\n"
+        'You MUST respond with JSON: {"translation": "your corrected translation here"}'
+    )
+
+    user_msg = (
+        f"SOURCE TEXT:\n{source_text}\n\n"
+        f"CURRENT TRANSLATION (missing required terms):\n{current_translation}\n\n"
+        "REQUIRED TERMS (source term -> required translation):\n"
+        + "\n".join(term_lines)
+        + "\n\nReturn the COMPLETE corrected translation with these terms worked in naturally."
+    )
+
+    return system, user_msg
+
+
+# -----------------------------------------------------------------------------
+# Completeness Prompt
+# -----------------------------------------------------------------------------
+
+
+def build_completeness_prompt(
+    source_text: str,
+    current_translation: str,
+    target_language: str,
+) -> str:
+    """Build a single-purpose prompt: does the translation drop any source meaning?
+
+    Deliberately narrow — it judges COMPLETENESS only (dropped clauses, omitted
+    sentences), not style, glossary, formatting or register, which are handled by
+    other checks. It must quote the omitted source words verbatim as evidence
+    (verified against the source in review.py, mirroring the per-file reviewer's
+    evidence brake) so it cannot fabricate an omission, and it must supply a
+    complete corrected translation to apply.
+
+    Returns a prompt string. Expected JSON response:
+        {"complete": true}
+        or
+        {"complete": false,
+         "missing_source_span": "exact words from the SOURCE left untranslated",
+         "revised": "the COMPLETE translation, including the omitted meaning"}
+    """
+    lang_name = LANGUAGE_NAMES.get(target_language, target_language)
+
+    return "\n".join([
+        f"You are checking whether a {lang_name} translation conveys the COMPLETE "
+        "meaning of its English source.",
+        "",
+        "Your ONLY job is to detect DROPPED meaning: a clause, sentence, or "
+        "meaningful phrase from the source that is entirely absent from the "
+        "translation. Do NOT judge style, word choice, formatting, glossary "
+        "terms, or register — only whether anything is missing.",
+        "",
+        "A translation that conveys every part of the source is COMPLETE, even if "
+        "you would phrase it differently. When in doubt, mark it complete.",
+        "",
+        "If — and only if — meaning is genuinely missing, you MUST:",
+        "- quote the omitted words verbatim from the SOURCE in 'missing_source_span' "
+        "(they must appear exactly in the source text), and",
+        "- provide in 'revised' the COMPLETE translation with the omitted meaning "
+        "restored, changing nothing else and adding nothing not in the source.",
+        "",
+        f"SOURCE:\n{source_text}",
+        "",
+        f"TRANSLATION:\n{current_translation}",
+        "",
+        "Respond with JSON only:",
+        '{"complete": true}',
+        "or",
+        '{"complete": false, "missing_source_span": "exact source words omitted", '
+        '"revised": "the complete corrected translation"}',
+    ])

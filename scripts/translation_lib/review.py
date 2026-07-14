@@ -12,11 +12,12 @@ import polib
 from .checks import fix_url_language_codes, validate_revision
 from .config import LANGUAGE_NAMES, SITE_REVIEW_CHUNK_SIZE, TranslationConfig
 from .fingerprint import is_review_current, standard_version
-from .formatting import format_diff, location
+from .formatting import format_diff, location, truncate
 from .llm_utils import call_llm, parse_json_response
-from .po_utils import get_po_files, is_locked, load_po_file, strip_obsolete
+from .po_utils import get_po_files, is_locked, load_po_file, save_po_files, strip_obsolete
 from .prompts import (
     REVIEW_ERROR_CATEGORIES,
+    build_completeness_prompt,
     build_review_prompt,
     build_site_review_prompt,
 )
@@ -32,6 +33,66 @@ def _span_present(span: str, text: str) -> bool:
         return re.sub(r"\s+", " ", s).strip().lower()
 
     return norm(span) in norm(text)
+
+
+def assess_completeness(
+    client,
+    entry: polib.POEntry,
+    language: str,
+    config: TranslationConfig,
+) -> tuple[str, str]:
+    """Check one translation for dropped source meaning, and fix it if possible.
+
+    This is the LLM half of the truncation guard: cheap deterministic checks
+    cannot tell whether a translation that is merely *short* has actually lost a
+    clause. It is meant to be called only on entries that
+    ``checks.is_truncation_suspect`` has already singled out, so its cost is
+    bounded to the few entries worth a look.
+
+    Like the per-file reviewer, it demands evidence — the omitted words must be
+    quoted verbatim from the source — so it cannot fabricate an omission and
+    demote a sound translation. Returns one of:
+
+    - ``("complete", "")``          — no omission found (or none it could prove)
+    - ``("revised", revised_text)`` — an omission was found and a safe, complete
+                                      revision is ready to apply
+    - ``("incomplete", reason)``    — an omission was found but could not be
+                                      safely repaired; the caller should demote
+                                      the entry to fuzzy and flag it
+    """
+    prompt = build_completeness_prompt(entry.msgid, entry.msgstr, language)
+    result = call_llm(client, prompt, json_mode=True)
+
+    try:
+        data = parse_json_response(result)
+    except json.JSONDecodeError:
+        # Unparseable verdict: don't block on it — the deterministic checks
+        # still gate this entry. Treat as complete rather than demote.
+        return ("complete", "")
+
+    if not isinstance(data, dict) or data.get("complete") is not False:
+        return ("complete", "")
+
+    # An omission is only credible if the model can quote real source words.
+    missing = (data.get("missing_source_span") or "").strip()
+    if not missing or not _span_present(missing, entry.msgid):
+        return ("complete", "")
+
+    reason = f"incomplete translation: source text omitted (\"{truncate(missing)}\")"
+
+    # Prefer to repair rather than demote: apply the model's complete revision
+    # if it is a real change that introduces no new deterministic problems.
+    revised = data.get("revised")
+    if isinstance(revised, str) and revised.strip():
+        revised = fix_url_language_codes(revised, language)
+        if revised != entry.msgstr:
+            new_issues = validate_revision(
+                entry.msgid, entry.msgstr, revised, language, config
+            )
+            if not new_issues:
+                return ("revised", revised)
+
+    return ("incomplete", reason)
 
 
 def review_po_files(
@@ -238,7 +299,7 @@ def review_site_wide(
 
     total_issues = 0
     total_applied = 0
-    files_to_save: dict[int, polib.POFile] = {}
+    files_to_save: list[polib.POFile] = []
 
     for chunk_num, chunk in enumerate(chunks, 1):
         if len(chunks) > 1:
@@ -285,19 +346,13 @@ def review_site_wide(
                         continue
                     print(f"      {fname}[{idx}]: {format_diff(current, revised)}")
                     po_entry.msgstr = revised
-                    files_to_save[id(po_file)] = po_file
+                    files_to_save.append(po_file)
                     total_applied += 1
                 else:
                     print(f"      {fname}[{idx}]: {format_diff(current, revised)}")
 
-    # Save modified files
-    if files_to_save:
-        saved = set()
-        for po_id, po_file in files_to_save.items():
-            if po_id not in saved:
-                strip_obsolete(po_file)
-                po_file.save()
-                saved.add(po_id)
+    # Save modified files (save_po_files de-duplicates by identity)
+    save_po_files(files_to_save)
 
     if total_issues == 0:
         print("  All translations consistent")

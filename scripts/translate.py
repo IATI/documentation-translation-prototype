@@ -44,13 +44,15 @@ from translation_lib import (
     is_locked,
     load_po_file,
     parse_json_response,
+    save_po_files,
     scaffold_language,
     strip_obsolete,
 )
 from translation_lib import config as tl_config
-from translation_lib.checks import run_all_checks
+from translation_lib.checks import is_truncation_suspect, run_all_checks
 from translation_lib.fingerprint import (
     entry_fingerprint,
+    is_review_current,
     needs_review_current,
     standard_version,
 )
@@ -63,7 +65,11 @@ from translation_lib.po_utils import (
 from translation_lib.formatting import fmt_duration, format_diff, location, truncate
 from translation_lib.prompts import build_translation_prompt
 from translation_lib.quality import ensure_entry_quality
-from translation_lib.review import review_po_files, review_site_wide
+from translation_lib.review import (
+    assess_completeness,
+    review_po_files,
+    review_site_wide,
+)
 from translation_lib.runlog import RunLog
 
 # Maximum number of review passes before stopping (convergence loop)
@@ -321,7 +327,7 @@ def refresh_fuzzy_language(
         return 0, deferred
 
     refreshed = 0
-    files_to_save: dict[int, polib.POFile] = {}
+    files_to_save: list[polib.POFile] = []
     for po_path, po, entry in to_refresh:
         new_translation = _retranslate_entry(client, entry, language, config)
         if new_translation is None:
@@ -334,7 +340,7 @@ def refresh_fuzzy_language(
         entry.msgstr = new_translation
         entry.flags = [f for f in entry.flags if f != "fuzzy"]
         clear_needs_review(entry)
-        files_to_save[id(po)] = po
+        files_to_save.append(po)
         refreshed += 1
 
         # Polish the fresh translation; the settle phase re-checks and fingerprints.
@@ -342,9 +348,7 @@ def refresh_fuzzy_language(
         for fix in qr.fixes_applied:
             print(f"      FIX: {fix}")
 
-    for po in files_to_save.values():
-        strip_obsolete(po)
-        po.save()
+    save_po_files(files_to_save)
 
     return refreshed, deferred
 
@@ -481,7 +485,7 @@ def _process_language(
         print(f"  Validating {total_check} translations...")
         fstart = time.monotonic()
         fstep = max(1, total_check // 20)
-        modified_pos: dict[str, polib.POFile] = {}
+        modified_pos: list[polib.POFile] = []
 
         for n, (po_path, po, entry) in enumerate(entries_to_check, 1):
             issues = run_all_checks(entry, lang, config)
@@ -493,8 +497,33 @@ def _process_language(
                     final_fix_details.append((
                         po_path.name, entry.msgid, old_translation, entry.msgstr,
                     ))
-                    modified_pos[str(po_path)] = po
+                    modified_pos.append(po)
                 issues = qr.remaining_issues
+
+            # LLM completeness check: for entries that pass the deterministic
+            # checks but look truncated, confirm no source clause was dropped
+            # (something length/formatting bounds can't detect). Gated to
+            # unsettled entries and truncation suspects so the LLM cost stays
+            # bounded to the few worth a look. A safe, complete revision is
+            # applied; an unrepairable omission demotes the entry to fuzzy.
+            if (
+                not issues
+                and not args.skip_review
+                and not is_review_current(entry, lang, std_version)
+                and is_truncation_suspect(entry.msgid, entry.msgstr)
+            ):
+                outcome, payload = assess_completeness(client, entry, lang, config)
+                if outcome == "revised":
+                    old_translation = entry.msgstr
+                    entry.msgstr = payload
+                    final_fixes += 1
+                    final_fix_details.append((
+                        po_path.name, entry.msgid, old_translation, entry.msgstr,
+                    ))
+                    modified_pos.append(po)
+                    issues = run_all_checks(entry, lang, config)
+                elif outcome == "incomplete":
+                    issues = [{"type": "incomplete", "description": payload}]
 
             if issues:
                 # Couldn't reach the standard — demote to fuzzy and flag it.
@@ -504,7 +533,7 @@ def _process_language(
                 set_needs_review(
                     entry, entry_fingerprint(entry, lang, std_version), reason
                 )
-                modified_pos[str(po_path)] = po
+                modified_pos.append(po)
                 demoted += 1
                 remaining_issue_details.append((po_path.name, entry.msgid, reason))
             elif not args.skip_review:
@@ -514,14 +543,12 @@ def _process_language(
                 # was not LLM-reviewed, so we cannot call it settled.)
                 fp = entry_fingerprint(entry, lang, std_version)
                 if set_review_fingerprint(entry, fp):
-                    modified_pos[str(po_path)] = po
+                    modified_pos.append(po)
 
             if not args.verbose and total_check and (n % fstep == 0 or n == total_check):
                 print(f"    {n}/{total_check} · {fmt_duration(time.monotonic() - fstart)}")
 
-        for po in modified_pos.values():
-            strip_obsolete(po)
-            po.save()
+        save_po_files(modified_pos)
     else:
         # Dry run: count issues without fixing
         for po_path in get_po_files(lang):

@@ -13,7 +13,7 @@ import polib
 from .checks import auto_fix_entry, run_all_checks, validate_revision
 from .config import TranslationConfig
 from .llm_utils import call_llm, parse_json_response
-from .prompts import build_correction_prompt
+from .prompts import build_correction_prompt, build_glossary_focus_prompt
 
 
 @dataclass
@@ -98,6 +98,39 @@ def ensure_entry_quality(
 
         # Some issues remain — update for next attempt
         issues = remaining
+
+    # Last resort: if every remaining issue is a missing glossary term, retry
+    # once more with a prompt that drops every other rule and isolates the
+    # model's attention on working the required term in. Mixed in with other
+    # instructions, a glossary miss is easy for the model to skip past; alone,
+    # with a worked example of grammatical adaptation, it's usually mechanical.
+    if issues and all(issue["type"] == "glossary_term" for issue in issues):
+        system_msg, user_msg = build_glossary_focus_prompt(
+            entry.msgid, entry.msgstr, issues, language, config
+        )
+        raw = call_llm(client, user_msg, system=system_msg, json_mode=True)
+
+        try:
+            data = parse_json_response(raw)
+        except json.JSONDecodeError:
+            data = None
+        corrected = data.get("translation") if isinstance(data, dict) else None
+
+        if isinstance(corrected, str) and corrected.strip():
+            new_issues = validate_revision(
+                entry.msgid, entry.msgstr, corrected, language, config
+            )
+            if not new_issues:
+                test_entry = polib.POEntry(msgid=entry.msgid, msgstr=corrected)
+                remaining = run_all_checks(test_entry, language, config)
+                if not remaining:
+                    fixes_applied.append(
+                        "LLM correction (glossary-focused retry): "
+                        + "; ".join(i["description"] for i in issues)
+                    )
+                    entry.msgstr = corrected
+                    return QualityResult(status="fixed", fixes_applied=fixes_applied)
+                issues = remaining
 
     # Exhausted attempts
     return QualityResult(

@@ -80,7 +80,11 @@ Examples:
     args = parser.parse_args()
 
     # Configure target project
-    configure_project(args.project_path)
+    try:
+        configure_project(args.project_path)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        return 1
 
     languages = [args.language] if args.language else SUPPORTED_LANGUAGES
 

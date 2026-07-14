@@ -12,23 +12,55 @@ automatically without the user having to ask.
 
 import hashlib
 import json
+import subprocess
+from functools import lru_cache
 
 import polib
 
-from .config import TranslationConfig
+from .config import TOOL_ROOT, TranslationConfig
 from .po_utils import get_needs_review, get_review_fingerprint
 from .prompts import FORMATTING_RULES
+
+
+@lru_cache(maxsize=1)
+def code_version() -> str:
+    """Identify the currently-running tool code, for cache invalidation.
+
+    Returns the tool repo's HEAD commit (short), suffixed with '+dirty' when
+    tracked files under scripts/ differ from that commit. Folding this into
+    standard_version() means any change to the translation logic (quality.py,
+    checks.py, prompts.py, ...) automatically invalidates stored review and
+    NEEDS-REVIEW fingerprints on the next run — so a fix to previously-unfixable
+    entries actually reaches them, with no manual version bump to forget.
+
+    The tool always runs from a git checkout, so git is assumed present. Cached:
+    git is only consulted once per process.
+    """
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=str(TOOL_ROOT), capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    # Tracked-file changes under scripts/ mean the running code differs from the
+    # commit; scoping to scripts/ avoids false "dirty" from logs or build output.
+    dirty = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts"],
+        cwd=str(TOOL_ROOT), capture_output=True,
+    ).returncode != 0
+    return f"{commit}+dirty" if dirty else commit
 
 
 def standard_version(config: TranslationConfig, language: str) -> str:
     """Short hash of everything that defines the translation standard for a language.
 
-    Folds in the formatting rules, project guidelines, and the language-specific
-    glossary, UI terms, and few-shot examples. Changing any of these changes the
-    returned value, which invalidates stored review fingerprints and forces the
-    affected translations to be re-reviewed.
+    Folds in the formatting rules, project guidelines, the language-specific
+    glossary, UI terms, few-shot examples, and the running code version (the
+    tool's git commit). Changing any of these changes the returned value, which
+    invalidates stored review fingerprints and forces the affected translations
+    to be re-reviewed.
     """
     payload = {
+        "code_version": code_version(),
         "formatting_rules": FORMATTING_RULES,
         "notes": (config.notes or "").strip(),
         "glossary": {
